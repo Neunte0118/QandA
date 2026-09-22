@@ -1,0 +1,6 @@
+{
+  "name": "一問一答",
+  "description": "スプレッドシートから読み込んだ問題で学習できるシンプルな一問一答Webアプリ",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
