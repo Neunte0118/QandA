@@ -111,14 +111,9 @@ export function CategorySelect({
                     <span className="w-9 h-9 rounded-lg bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-neutral-600 dark:text-neutral-300 group-hover:bg-neutral-200 dark:group-hover:bg-neutral-700 transition-colors shrink-0">
                       <BookOpen className="w-4 h-4" />
                     </span>
-                    <div>
-                      <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 block">
-                        {cat.title}
-                      </span>
-                      <span className="text-[10px] text-neutral-400 dark:text-neutral-500 font-mono">
-                        ID: {cat.id}
-                      </span>
-                    </div>
+                    <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 block">
+                      {cat.title}
+                    </span>
                   </div>
                   <span className="text-xs text-neutral-400 dark:text-neutral-500 group-hover:text-neutral-700 dark:group-hover:text-neutral-300 transition-colors font-medium shrink-0 ml-2">
                     開始 &rarr;

@@ -252,15 +252,8 @@ export function QuizCard({
           }`}
           aria-label={showAnswer ? 'スワイプまたはタップで回答' : 'タップで解答を表示'}
         >
-          {/* Card Header: ID on top-left, importance on top-right */}
-          <div className="flex items-start justify-between gap-2 pb-3.5 border-b border-neutral-100 dark:border-neutral-800">
-            <span
-              id="question-id-label"
-              className="text-[10px] sm:text-[11px] font-mono text-neutral-400 dark:text-neutral-500 tracking-tight truncate max-w-[65%]"
-              title={question.id}
-            >
-              ID: {question.id}
-            </span>
+          {/* Card Header: importance on top-right */}
+          <div className="flex items-center justify-end pb-3.5 border-b border-neutral-100 dark:border-neutral-800">
             <span
               id="question-importance-label"
               className="text-[11px] sm:text-xs font-semibold text-neutral-700 dark:text-neutral-300 shrink-0 bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded-md"
