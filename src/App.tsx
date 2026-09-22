@@ -31,6 +31,30 @@ export default function App() {
     new Map()
   );
 
+  // Dark / Light mode state with persistence
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('theme');
+      if (saved) return saved === 'dark';
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDarkMode]);
+
+  const handleToggleDarkMode = () => {
+    setIsDarkMode((prev) => !prev);
+  };
+
   // Current active question
   const [currentQuestion, setCurrentQuestion] = useState<QuizQuestion | null>(null);
   const [isReviewQuestion, setIsReviewQuestion] = useState<boolean>(false);
@@ -174,14 +198,14 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-dvh bg-neutral-50 text-neutral-800 flex flex-col justify-between p-3 sm:p-6 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(0.5rem+env(safe-area-inset-top))] font-sans antialiased">
+    <div className="min-h-dvh bg-neutral-50 dark:bg-neutral-950 text-neutral-800 dark:text-neutral-100 flex flex-col justify-between p-3 sm:p-6 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(0.5rem+env(safe-area-inset-top))] font-sans antialiased transition-colors">
       {/* Top Header */}
       <header className="w-full max-w-xl mx-auto py-2 sm:py-3 px-1 flex items-center justify-between">
         <div className="text-left">
-          <h1 className="text-lg sm:text-xl font-black tracking-tight text-neutral-900">
+          <h1 className="text-lg sm:text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">
             一問一答
           </h1>
-          <p className="text-[11px] sm:text-xs text-neutral-500 truncate max-w-[200px] sm:max-w-none">
+          <p className="text-[11px] sm:text-xs text-neutral-500 dark:text-neutral-400 truncate max-w-[200px] sm:max-w-none">
             {selectedCategory
               ? selectedCategory.title
               : 'スプレッドシートから読み込んで学習'}
@@ -202,24 +226,26 @@ export default function App() {
             categories={categories}
             isLoading={isLoadingCategories}
             error={categoriesError}
+            isDarkMode={isDarkMode}
+            onToggleDarkMode={handleToggleDarkMode}
             onSelect={handleSelectCategory}
             onRefresh={loadCategories}
           />
         ) : isLoadingQuestions ? (
           /* Loading questions */
           <div className="py-16 text-center">
-            <div className="inline-block w-6 h-6 border-2 border-neutral-300 border-t-neutral-800 rounded-full animate-spin mb-3" />
-            <p className="text-sm text-neutral-600">問題を読み込み中...</p>
+            <div className="inline-block w-6 h-6 border-2 border-neutral-300 dark:border-neutral-700 border-t-neutral-800 dark:border-t-neutral-200 rounded-full animate-spin mb-3" />
+            <p className="text-sm text-neutral-600 dark:text-neutral-400">問題を読み込み中...</p>
           </div>
         ) : questionsError ? (
           /* Error loading questions */
-          <div className="w-full max-w-md bg-white border border-neutral-200 rounded-2xl p-6 text-center shadow-xs">
-            <p className="text-sm text-red-600 font-medium mb-3">{questionsError}</p>
+          <div className="w-full max-w-md bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-6 text-center shadow-xs">
+            <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-3">{questionsError}</p>
             <button
               id="back-from-error-button"
               type="button"
               onClick={handleBackToCategories}
-              className="px-4 py-2.5 bg-neutral-900 text-white rounded-xl text-xs font-semibold hover:bg-neutral-800 transition-colors"
+              className="px-4 py-2.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 rounded-xl text-xs font-semibold hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-colors"
             >
               単元一覧に戻る
             </button>
