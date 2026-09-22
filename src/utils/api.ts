@@ -8,32 +8,32 @@ export const ROOT_SPREADSHEET_CSV_URL =
 export const SAMPLE_QUESTIONS: QuizQuestion[] = [
   {
     id: '01a0c89c-c163-704b-b339-b4e07d913958',
-    question: '航海時代の到来のきっかけとなった、『世界の記述』（『東方見聞録』）の著者は誰か。',
+    question: '航海時代の到来のきっかけとなった、『<red>世界の記述</ red>』（『<em>東方見聞録</em>』）の著者は誰か。',
     answer: 'マルコ・ポーロ',
     importance: '5',
   },
   {
     id: '01a0c89c-c163-704b-b339-b9001a0c3777',
-    question: '1492年、スペイン女王イサベルの支援を受けて大西洋を西に進み、サンサルバドル島に到達した人物は誰か。',
-    answer: 'コロンブス',
+    question: '1492年、スペイン女王イサベルの支援を受けて大西洋を西に進み、<blue>サンサルバドル島</ blue>に到達した人物は誰か。',
+    answer: '<blue>コロンブス</ blue>',
     importance: '5',
   },
   {
     id: '01a0c89c-c163-704b-b339-bcba581fdfae',
-    question: '1498年、アフリカ南端の喜望峰を回ってインド西岸のカリカットに到達したポルトガルの航海者は誰か。',
-    answer: 'ヴァスコ・ダ・ガマ',
+    question: '1498年、アフリカ南端の<yellow>喜望峰</ yellow>を回ってインド西岸の<green>カリカット</ green>に到達したポルトガルの航海者は誰か。',
+    answer: '<green>ヴァスコ・ダ・ガマ</ green>',
     importance: '4',
   },
   {
     id: '01a0c89c-c163-704b-b339-c156d2923756',
-    question: '1519年に出発し、南アメリカ南端を通過して太平洋を横断、部下が史上初の世界周航を達成した人物は誰か。',
-    answer: 'マゼラン',
+    question: '1519年に出発し、南アメリカ南端を通過して<cyan>太平洋</ cyan>を横断、部下が史上初の世界周航を達成した<em>マゼラン船隊</em>の指揮者は誰か。',
+    answer: '<color value="#0284c7">マゼラン</ color>',
     importance: '5',
   },
   {
     id: '01a0c89c-c163-704b-b339-c44a132a6c83',
-    question: '1488年にポルトガル王ジョアン2世の命でアフリカ南端の喜望峰（嵐の岬）に到達した航海者は誰か。',
-    answer: 'バルトロメウ・ディアス',
+    question: '1488年にポルトガル王ジョアン2世の命でアフリカ南端の喜望峰（<magenta>嵐の岬</ magenta>）に到達した航海者は誰か。',
+    answer: '<magenta>バルトロメウ・ディアス</ magenta>',
     importance: '4',
   },
 ];

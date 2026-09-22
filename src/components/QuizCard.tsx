@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { QuizQuestion, QuestionStats } from '../types';
 import { ArrowLeft, Check, X as XIcon } from 'lucide-react';
+import { FormattedText } from './FormattedText';
 
 interface QuizCardProps {
   question: QuizQuestion;
@@ -279,7 +280,7 @@ export function QuizCard({
                 id="question-text"
                 className="text-base sm:text-xl font-medium text-neutral-900 dark:text-neutral-100 leading-relaxed break-words"
               >
-                {question.question}
+                <FormattedText text={question.question} />
               </p>
             </div>
 
@@ -302,7 +303,7 @@ export function QuizCard({
                   id="answer-text"
                   className="text-xl sm:text-2xl font-bold text-red-600 dark:text-rose-400 leading-snug break-words"
                 >
-                  {question.answer}
+                  <FormattedText text={question.answer} />
                 </p>
               </div>
             ) : (
