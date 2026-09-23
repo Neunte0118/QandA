@@ -249,11 +249,6 @@ export function QuizCard({
         </button>
 
         <div className="flex items-center gap-1.5 sm:gap-2 text-xs">
-          {isReview && (
-            <span className="text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 px-2 py-0.5 rounded-full">
-              復習
-            </span>
-          )}
           <span className="text-neutral-500 dark:text-neutral-400 truncate max-w-[120px] sm:max-w-none">
             {categoryTitle}
           </span>
@@ -391,7 +386,7 @@ export function QuizCard({
                   </div>
                   {accuracyPercent !== null ? (
                     <span className="text-[10px] sm:text-[11px] text-neutral-400 dark:text-neutral-500">
-                      過去実績: {correctCount}/{answeredCount}問正解 ({accuracyPercent}%)
+                      正答率: {correctCount}/{answeredCount} | ({accuracyPercent}%)
                     </span>
                   ) : (
                     <span className="text-[10px] sm:text-[11px] text-neutral-400 dark:text-neutral-500">初出題</span>
