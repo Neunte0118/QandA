@@ -270,7 +270,7 @@ export default function App() {
 
       {/* Footer (Desktop only or unobtrusive on mobile) */}
       <footer className="w-full max-w-xl mx-auto py-2 text-center text-[10px] sm:text-[11px] text-neutral-400 hidden sm:block">
-        タップで解答表示・正誤記録（無限ループ学習）
+        Neunte0118
       </footer>
     </div>
   );

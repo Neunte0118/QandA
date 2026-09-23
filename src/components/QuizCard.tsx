@@ -272,19 +272,12 @@ export function QuizCard({
       {/* Swipe Direction Instruction Hints */}
       <div className="flex items-center justify-between px-2 text-[11px] text-neutral-400 dark:text-neutral-500">
         <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
-          ← 左スワイプ: 正解 (○)
+          ← 正解
         </span>
         <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 font-semibold">
-          右スワイプ: 不正解 (✕) →
+          不正解 →
         </span>
       </div>
-
-      {/* Tap hint notification banner when user tries to tap card to continue */}
-      {showTapHint && (
-        <div className="px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs text-center font-medium shadow-xs animate-fadeIn">
-          タップでは次へ進めません。<strong>左スワイプ（○）</strong>または<strong>右スワイプ（✕）</strong>で回答してください。
-        </div>
-      )}
 
       {/* Main Flashcard with Swipe Motion */}
       <div className="relative w-full overflow-y-clip">
@@ -375,7 +368,7 @@ export function QuizCard({
           </div>
 
           {/* Card Content: Question and Answer */}
-          <div className="my-auto py-5 sm:py-6 flex flex-col gap-5 sm:gap-6">
+          <div className="flex-1 py-4 sm:py-5 flex flex-col justify-start gap-4 sm:gap-6">
             {/* Question Text */}
             <div>
               <div className="text-[10px] sm:text-[11px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1.5">
@@ -412,9 +405,7 @@ export function QuizCard({
                 </p>
               </div>
             ) : (
-              <div className="py-2 text-center text-xs text-neutral-400 dark:text-neutral-500 font-medium">
-                タップして解答を表示
-              </div>
+              <div />
             )}
           </div>
 
@@ -436,15 +427,6 @@ export function QuizCard({
                     O
                   </button>
 
-                  <div className="text-center">
-                    <span className="text-xs text-neutral-500 dark:text-neutral-400 font-semibold block">
-                      [← / Oキー: 正解] [→ / Xキー: 不正解]
-                    </span>
-                    <span className="text-[10px] text-neutral-400 dark:text-neutral-500">
-                      スワイプまたは○／✕で回答（タップ継続不可）
-                    </span>
-                  </div>
-
                   <button
                     id="desktop-incorrect-button"
                     type="button"
@@ -461,21 +443,10 @@ export function QuizCard({
               </>
             ) : (
               <div className="w-full text-center text-xs text-neutral-400 dark:text-neutral-500">
-                画面をタップで解答を表示 [Space / Enter]
+                画面をタップで解答を表示
               </div>
             )}
           </div>
-
-          {/* Mobile footer hint inside card (when answer is not shown) */}
-          {!showAnswer ? (
-            <div className="sm:hidden pt-3 border-t border-neutral-100 dark:border-neutral-800 text-center text-[11px] text-neutral-400 dark:text-neutral-500">
-              タップで解答を表示
-            </div>
-          ) : (
-            <div className="sm:hidden pt-2.5 border-t border-neutral-100 dark:border-neutral-800 text-center text-[10px] text-neutral-400 dark:text-neutral-500">
-              左右スワイプまたは下の○／✕で回答してください
-            </div>
-          )}
         </div>
       </div>
 
@@ -499,16 +470,7 @@ export function QuizCard({
                   O
                 </button>
                 <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
-                  左スワイプ / 正解
-                </span>
-              </div>
-
-              <div className="text-center px-2">
-                <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-300 block leading-tight">
-                  ○／✕で回答
-                </span>
-                <span className="text-[9px] text-neutral-400 dark:text-neutral-500">
-                  タップ継続不可
+                  左スワイプ
                 </span>
               </div>
 
@@ -527,7 +489,7 @@ export function QuizCard({
                   X
                 </button>
                 <span className="text-[10px] font-semibold text-red-700 dark:text-red-400">
-                  右スワイプ / 不正解
+                  右スワイプ
                 </span>
               </div>
             </>
