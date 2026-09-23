@@ -198,7 +198,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-dvh bg-neutral-50 dark:bg-neutral-950 text-neutral-800 dark:text-neutral-100 flex flex-col justify-between p-3 sm:p-6 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(0.5rem+env(safe-area-inset-top))] font-sans antialiased transition-colors">
+    <div className="min-h-dvh w-full max-w-full overflow-x-hidden bg-neutral-50 dark:bg-neutral-950 text-neutral-800 dark:text-neutral-100 flex flex-col justify-between p-3 sm:p-6 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(0.5rem+env(safe-area-inset-top))] font-sans antialiased transition-colors">
       {/* Top Header */}
       <header className="w-full max-w-xl mx-auto py-2 sm:py-3 px-1 flex items-center justify-between">
         <div className="text-left">
@@ -219,7 +219,7 @@ export default function App() {
       </header>
 
       {/* Main Content Area */}
-      <main className="w-full flex-1 flex flex-col justify-center items-center my-2 sm:my-4">
+      <main className="w-full max-w-full flex-1 flex flex-col justify-center items-center my-2 sm:my-4 overflow-x-clip overflow-y-clip">
         {/* Step 1: Category Selection */}
         {!selectedCategory ? (
           <CategorySelect

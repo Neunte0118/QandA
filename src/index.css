@@ -6,7 +6,74 @@
   html, body {
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
-    overscroll-behavior-y: none;
+    overscroll-behavior: none;
+    overflow-x: hidden;
+    width: 100%;
+    max-width: 100vw;
   }
+
+  #root {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+}
+
+@keyframes edgeFlashGreen {
+  0% {
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+    box-shadow: inset 0 0 35px 12px rgba(16, 185, 129, 0.9),
+                inset 0 0 80px 28px rgba(16, 185, 129, 0.55);
+    border-color: rgba(16, 185, 129, 0.95);
+  }
+  100% {
+    opacity: 0;
+    box-shadow: inset 0 0 20px 4px rgba(16, 185, 129, 0.3),
+                inset 0 0 40px 10px rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.2);
+  }
+}
+
+@keyframes edgeFlashRed {
+  0% {
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+    box-shadow: inset 0 0 35px 12px rgba(239, 68, 68, 0.9),
+                inset 0 0 80px 28px rgba(239, 68, 68, 0.55);
+    border-color: rgba(239, 68, 68, 0.95);
+  }
+  100% {
+    opacity: 0;
+    box-shadow: inset 0 0 20px 4px rgba(239, 68, 68, 0.3),
+                inset 0 0 40px 10px rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.2);
+  }
+}
+
+.screen-edge-flash-green {
+  border: 5px solid rgba(16, 185, 129, 0.95);
+  animation: edgeFlashGreen 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.screen-edge-flash-red {
+  border: 5px solid rgba(239, 68, 68, 0.95);
+  animation: edgeFlashRed 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.screen-edge-drag-green {
+  border: 4px solid rgba(16, 185, 129, 0.85);
+  box-shadow: inset 0 0 25px 8px rgba(16, 185, 129, 0.7),
+              inset 0 0 55px 18px rgba(16, 185, 129, 0.4);
+}
+
+.screen-edge-drag-red {
+  border: 4px solid rgba(239, 68, 68, 0.85);
+  box-shadow: inset 0 0 25px 8px rgba(239, 68, 68, 0.7),
+              inset 0 0 55px 18px rgba(239, 68, 68, 0.4);
 }
 
