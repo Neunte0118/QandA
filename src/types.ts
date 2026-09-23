@@ -2,6 +2,10 @@ export interface QuizCategory {
   id: string; // quizId
   title: string;
   url: string;
+  isEncrypted?: boolean;
+  decryptionKey?: string;
+  rawTitle?: string;
+  rawId?: string;
 }
 
 export interface QuizQuestion {

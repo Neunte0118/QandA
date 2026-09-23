@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { QuizCategory, QuizQuestion, QuestionStats } from './types';
-import { fetchCategories, fetchQuestions, ROOT_SPREADSHEET_CSV_URL } from './utils/api';
+import {
+  fetchCategoriesWithLocked,
+  fetchQuestions,
+  tryUnlockEncryptedCategory,
+  ROOT_SPREADSHEET_CSV_URL,
+} from './utils/api';
+import { removeCategoryCredential } from './utils/crypto';
 import { selectNextQuestion } from './utils/quizSelector';
 import {
   getQuizStats,
@@ -15,6 +21,7 @@ import { PWAInstallButton } from './components/PWAInstallButton';
 export default function App() {
   // Category selection states
   const [categories, setCategories] = useState<QuizCategory[]>([]);
+  const [lockedCategories, setLockedCategories] = useState<QuizCategory[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = useState<boolean>(true);
   const [categoriesError, setCategoriesError] = useState<string | null>(null);
 
@@ -69,8 +76,9 @@ export default function App() {
     setIsLoadingCategories(true);
     setCategoriesError(null);
     try {
-      const data = await fetchCategories(ROOT_SPREADSHEET_CSV_URL);
-      setCategories(data);
+      const res = await fetchCategoriesWithLocked(ROOT_SPREADSHEET_CSV_URL);
+      setCategories(res.visibleCategories);
+      setLockedCategories(res.lockedCategories);
     } catch (err) {
       console.error('Failed to load categories:', err);
       setCategoriesError('カテゴリー一覧の取得に失敗しました。');
@@ -83,6 +91,35 @@ export default function App() {
     loadCategories();
   }, [loadCategories]);
 
+  // Handle adding an encrypted category with encrypted ID and decryption key
+  const handleAddEncryptedCategory = async (
+    encryptedId: string,
+    key: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    const result = tryUnlockEncryptedCategory(encryptedId, key, lockedCategories);
+    if (result.success) {
+      const res = await fetchCategoriesWithLocked(ROOT_SPREADSHEET_CSV_URL);
+      setCategories(res.visibleCategories);
+      setLockedCategories(res.lockedCategories);
+      return { success: true };
+    }
+    return { success: false, error: result.error };
+  };
+
+  // Handle removing stored decryption key for a category
+  const handleRemoveCredential = async (category: QuizCategory) => {
+    removeCategoryCredential({
+      id: category.id,
+      rawId: category.rawId,
+      title: category.title,
+      rawTitle: category.rawTitle,
+      decryptionKey: category.decryptionKey,
+    });
+    const res = await fetchCategoriesWithLocked(ROOT_SPREADSHEET_CSV_URL);
+    setCategories(res.visibleCategories);
+    setLockedCategories(res.lockedCategories);
+  };
+
   // Handle selecting a category and initializing IndexedDB session
   const handleSelectCategory = async (category: QuizCategory) => {
     setSelectedCategory(category);
@@ -92,9 +129,9 @@ export default function App() {
     setCurrentQuestion(null);
 
     try {
-      // 1. Fetch questions from URL
+      // 1. Fetch questions from URL, decrypting if key exists
       const { questions: loadedQuestions, isUsingFallback: fallback } =
-        await fetchQuestions(category.url);
+        await fetchQuestions(category.url, category.decryptionKey);
 
       if (loadedQuestions.length === 0) {
         setQuestionsError('問題データが見つかりませんでした。');
@@ -122,7 +159,7 @@ export default function App() {
       setQuizShownCount(newShown);
       shownCountRef.current = newShown;
 
-      // 4. Select initial question according to probability (shown / total)^2
+      // 4. Select initial question according to probability and importance
       const selection = selectNextQuestion(
         loadedQuestions,
         savedQuestionStatsMap,
@@ -230,6 +267,8 @@ export default function App() {
             onToggleDarkMode={handleToggleDarkMode}
             onSelect={handleSelectCategory}
             onRefresh={loadCategories}
+            onAddEncryptedCategory={handleAddEncryptedCategory}
+            onRemoveCredential={handleRemoveCredential}
           />
         ) : isLoadingQuestions ? (
           /* Loading questions */

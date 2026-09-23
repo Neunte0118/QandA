@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { QuizQuestion, QuestionStats } from '../types';
 import { ArrowLeft, Check, X as XIcon } from 'lucide-react';
 import { FormattedText } from './FormattedText';
+import { parseImportance } from '../utils/quizSelector';
 
 interface QuizCardProps {
   question: QuizQuestion;
@@ -205,6 +206,7 @@ export function QuizCard({
   const correctCount = questionStats?.correct ?? 0;
   const accuracyPercent =
     answeredCount > 0 ? Math.round((correctCount / answeredCount) * 100) : null;
+  const starCount = parseImportance(question.importance);
 
   // Visual cues based on drag direction
   // Dragging left (negative offset): Correct cue (Emerald)
@@ -356,9 +358,11 @@ export function QuizCard({
           <div className="flex items-center justify-end pb-3.5 border-b border-neutral-100 dark:border-neutral-800">
             <span
               id="question-importance-label"
-              className="text-[11px] sm:text-xs font-semibold text-neutral-700 dark:text-neutral-300 shrink-0 bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded-md"
+              className="text-xs sm:text-sm font-bold text-amber-500 dark:text-amber-400 shrink-0 tracking-widest select-none bg-amber-50/80 dark:bg-amber-950/40 px-2 py-0.5 rounded-md border border-amber-200/60 dark:border-amber-900/40"
+              aria-label={`重要度: ${starCount}`}
+              title={`重要度: ${starCount}`}
             >
-              重要度: {question.importance}
+              {'★'.repeat(starCount)}
             </span>
           </div>
 

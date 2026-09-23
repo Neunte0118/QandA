@@ -1,5 +1,12 @@
 import { QuizCategory, QuizQuestion } from '../types';
 import { parseCSV } from './csvParser';
+import {
+  decryptCryptoJS,
+  isEncryptedValue,
+  normalizeEncryptedId,
+  getSavedCredentials,
+  saveCredential,
+} from './crypto';
 
 export const ROOT_SPREADSHEET_CSV_URL =
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vT2TOUycdy4F_3qK07EseDUdwgfAHqkHmCprFwxJPHYLR2sL72zKuKO_GTXVWAVSC4UMIrA7P5Zh5s4/pub?gid=0&single=true&output=csv';
@@ -62,12 +69,19 @@ async function fetchCSVText(url: string): Promise<string> {
   }
 }
 
+export interface CategoriesResult {
+  visibleCategories: QuizCategory[];
+  lockedCategories: QuizCategory[];
+}
+
 /**
- * Fetches and parses the root categories sheet
+ * Fetches and parses the root categories sheet.
+ * Encrypted categories whose titles start with "enc:" are hidden from visibleCategories
+ * unless unlocked by stored credentials in localStorage.
  */
-export async function fetchCategories(
+export async function fetchCategoriesWithLocked(
   rootUrl: string = ROOT_SPREADSHEET_CSV_URL
-): Promise<QuizCategory[]> {
+): Promise<CategoriesResult> {
   const csvText = await fetchCSVText(rootUrl);
   const rows = parseCSV(csvText);
 
@@ -84,39 +98,237 @@ export async function fetchCategories(
   const validTitleIdx = titleIndex !== -1 ? titleIndex : (idIndex !== -1 ? 1 : 0);
   const validUrlIdx = urlIndex !== -1 ? urlIndex : (idIndex !== -1 ? 2 : 1);
 
-  const categories: QuizCategory[] = [];
+  const visibleCategories: QuizCategory[] = [];
+  const lockedCategories: QuizCategory[] = [];
+  const savedCreds = getSavedCredentials();
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     const rawId = idIndex !== -1 ? row[validIdIdx]?.trim() : '';
-    const title = row[validTitleIdx]?.trim();
+    const rawTitle = row[validTitleIdx]?.trim();
     const url = row[validUrlIdx]?.trim();
-    const id = rawId || (title ? `quiz-${encodeURIComponent(title)}` : `quiz-${i}`);
 
-    if (title && url && url.startsWith('http')) {
-      categories.push({ id, title, url });
+    if (!rawTitle || !url || !url.startsWith('http')) {
+      continue;
+    }
+
+    if (isEncryptedValue(rawTitle)) {
+      // Encrypted category
+      let matchedCred = savedCreds.find((c) => {
+        if (c.id && rawId) {
+          if (
+            normalizeEncryptedId(c.id) === normalizeEncryptedId(rawId) ||
+            c.id.trim() === rawId.trim()
+          ) {
+            return true;
+          }
+        }
+        const decrypted = decryptCryptoJS(rawTitle, c.key);
+        return (
+          decrypted &&
+          c.title &&
+          decrypted.trim().toLowerCase() === c.title.trim().toLowerCase()
+        );
+      });
+
+      // Try any saved credential if it can decrypt this title
+      if (!matchedCred) {
+        for (const cred of savedCreds) {
+          const decrypted = decryptCryptoJS(rawTitle, cred.key);
+          if (decrypted && decrypted.trim().length > 0) {
+            matchedCred = { ...cred, title: decrypted.trim(), id: cred.id || rawId };
+            break;
+          }
+        }
+      }
+
+      if (matchedCred) {
+        // Successfully unlocked with local stored key!
+        const plainTitle = decryptCryptoJS(rawTitle, matchedCred.key) || rawTitle;
+        const plainId = rawId && isEncryptedValue(rawId)
+          ? (decryptCryptoJS(rawId, matchedCred.key) || rawId)
+          : (rawId || `quiz-${encodeURIComponent(plainTitle)}`);
+
+        visibleCategories.push({
+          id: plainId,
+          title: plainTitle,
+          url,
+          isEncrypted: true,
+          decryptionKey: matchedCred.key,
+          rawTitle,
+          rawId,
+        });
+      } else {
+        // Not unlocked yet - hide from visible categories list
+        lockedCategories.push({
+          id: rawId || `enc-quiz-${i}`,
+          title: rawTitle,
+          url,
+          isEncrypted: true,
+          rawTitle,
+          rawId,
+        });
+      }
+    } else {
+      // Normal unencrypted category
+      const id = rawId || (rawTitle ? `quiz-${encodeURIComponent(rawTitle)}` : `quiz-${i}`);
+      visibleCategories.push({
+        id,
+        title: rawTitle,
+        url,
+        isEncrypted: false,
+      });
     }
   }
 
-  if (categories.length === 0) {
+  if (visibleCategories.length === 0 && lockedCategories.length === 0) {
     // Fallback if formatting differed slightly
-    return [
-      {
-        id: '01a0c8d8-3960-720a-a4dc-f3dcb40005cc',
-        title: '後期期末世界史',
-        url: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT2TOUycdy4F_3qK07EseDUdwgfAHqkHmCprFwxJPHYLR2sL72zKuKO_GTXVWAVSC4UMIrA7P5Zh5s4/pub?gid=601855841&single=true&output=csv',
-      },
-    ];
+    return {
+      visibleCategories: [
+        {
+          id: '01a0c8d8-3960-720a-a4dc-f3dcb40005cc',
+          title: '後期期末世界史',
+          url: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT2TOUycdy4F_3qK07EseDUdwgfAHqkHmCprFwxJPHYLR2sL72zKuKO_GTXVWAVSC4UMIrA7P5Zh5s4/pub?gid=601855841&single=true&output=csv',
+        },
+      ],
+      lockedCategories: [],
+    };
   }
 
-  return categories;
+  return { visibleCategories, lockedCategories };
 }
 
 /**
- * Fetches and parses questions for a selected category URL
+ * Backward-compatible fetchCategories returning only visible/unlocked categories
+ */
+export async function fetchCategories(
+  rootUrl: string = ROOT_SPREADSHEET_CSV_URL
+): Promise<QuizCategory[]> {
+  const res = await fetchCategoriesWithLocked(rootUrl);
+  return res.visibleCategories;
+}
+
+/**
+ * Attempt to unlock an encrypted category from locked list using user-entered encrypted ID & decryption key
+ */
+export function tryUnlockEncryptedCategory(
+  idInput: string,
+  keyInput: string,
+  lockedCategories: QuizCategory[]
+): { success: true; unlockedCategory: QuizCategory } | { success: false; error: string } {
+  const targetId = idInput.trim().replace(/^["']|["']$/g, '').trim();
+  const cleanKey = keyInput.trim().replace(/^["']|["']$/g, '').trim();
+
+  if (!targetId) {
+    return { success: false, error: 'IDを入力してください' };
+  }
+  if (!cleanKey) {
+    return { success: false, error: '復号キーを入力してください' };
+  }
+
+  const normInputId = normalizeEncryptedId(targetId);
+
+  // 1. Find matching category among locked categories
+  let matchedLocked: QuizCategory | undefined = lockedCategories.find((locked) => {
+    if (locked.rawId) {
+      const cleanRawId = locked.rawId.trim().replace(/^["']|["']$/g, '').trim();
+      if (
+        cleanRawId.toLowerCase() === targetId.toLowerCase() ||
+        normalizeEncryptedId(cleanRawId) === normInputId
+      ) {
+        return true;
+      }
+    }
+    if (locked.id) {
+      const cleanId = locked.id.trim().replace(/^["']|["']$/g, '').trim();
+      if (
+        cleanId.toLowerCase() === targetId.toLowerCase() ||
+        normalizeEncryptedId(cleanId) === normInputId
+      ) {
+        return true;
+      }
+    }
+    // Also allow if user passed the raw encrypted title by mistake
+    if (locked.rawTitle && normalizeEncryptedId(locked.rawTitle) === normInputId) {
+      return true;
+    }
+    return false;
+  });
+
+  // 1b. If not found by direct ID string, test if targetId matches a decrypted rawId
+  if (!matchedLocked) {
+    for (const locked of lockedCategories) {
+      if (locked.rawId && isEncryptedValue(locked.rawId)) {
+        const decryptedId = decryptCryptoJS(locked.rawId, cleanKey);
+        if (
+          decryptedId &&
+          (decryptedId.trim().toLowerCase() === targetId.toLowerCase() ||
+            normalizeEncryptedId(decryptedId) === normInputId)
+        ) {
+          matchedLocked = locked;
+          break;
+        }
+      }
+    }
+  }
+
+  // 1c. If still not matched, check if cleanKey successfully decrypts a locked category's title
+  if (!matchedLocked) {
+    for (const locked of lockedCategories) {
+      if (locked.rawTitle) {
+        const testDecrypted = decryptCryptoJS(locked.rawTitle, cleanKey);
+        if (testDecrypted && testDecrypted.trim().length > 0) {
+          matchedLocked = locked;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!matchedLocked) {
+    return {
+      success: false,
+      error: '一致する問題が見つかりませんでした。IDと復号キーをご確認ください。',
+    };
+  }
+
+  // 2. Validate decryption key by decrypting title
+  const decryptedTitle = decryptCryptoJS(matchedLocked.rawTitle || '', cleanKey);
+  if (!decryptedTitle) {
+    return {
+      success: false,
+      error: 'IDは見つかりましたが、復号キーが正しくありません。',
+    };
+  }
+
+  const decryptedId =
+    matchedLocked.rawId && isEncryptedValue(matchedLocked.rawId)
+      ? decryptCryptoJS(matchedLocked.rawId, cleanKey) || matchedLocked.rawId
+      : matchedLocked.id;
+
+  // 3. Save credential with ID and Title
+  saveCredential(matchedLocked.rawId || matchedLocked.id, decryptedTitle.trim(), cleanKey);
+
+  return {
+    success: true,
+    unlockedCategory: {
+      id: decryptedId,
+      title: decryptedTitle.trim(),
+      url: matchedLocked.url,
+      isEncrypted: true,
+      decryptionKey: cleanKey,
+      rawTitle: matchedLocked.rawTitle,
+      rawId: matchedLocked.rawId,
+    },
+  };
+}
+
+/**
+ * Fetches and parses questions for a selected category URL, decrypting if necessary
  */
 export async function fetchQuestions(
-  url: string
+  url: string,
+  decryptionKey?: string
 ): Promise<{ questions: QuizQuestion[]; isUsingFallback: boolean }> {
   try {
     const csvText = await fetchCSVText(url);
@@ -143,24 +355,50 @@ export async function fetchQuestions(
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      const id = row[iIdx]?.trim() || `q-${i}`;
-      const question = row[qIdx]?.trim();
-      const answer = row[aIdx]?.trim();
+      let id = row[iIdx]?.trim() || `q-${i}`;
+      let question = row[qIdx]?.trim();
+      let answer = row[aIdx]?.trim();
       const importance = row[impIdx]?.trim() || '3';
 
-      // Only add if question and answer are non-empty
-      if (question && answer) {
-        questions.push({
-          id,
-          question,
-          answer,
-          importance,
-        });
+      if (!question || !answer) {
+        continue;
       }
+
+      // Decrypt ID if encrypted
+      if (isEncryptedValue(id) && decryptionKey) {
+        const decryptedId = decryptCryptoJS(id, decryptionKey);
+        if (decryptedId) id = decryptedId;
+      }
+
+      // Decrypt question if encrypted
+      if (isEncryptedValue(question)) {
+        if (decryptionKey) {
+          const decrypted = decryptCryptoJS(question, decryptionKey);
+          question = decrypted ?? '[復号失敗: キーが異なります]';
+        } else {
+          question = '[暗号化された問題 - 復号キーが必要です]';
+        }
+      }
+
+      // Decrypt answer if encrypted
+      if (isEncryptedValue(answer)) {
+        if (decryptionKey) {
+          const decrypted = decryptCryptoJS(answer, decryptionKey);
+          answer = decrypted ?? '[復号失敗: キーが異なります]';
+        } else {
+          answer = '[暗号化された解答 - 復号キーが必要です]';
+        }
+      }
+
+      questions.push({
+        id,
+        question,
+        answer,
+        importance,
+      });
     }
 
     if (questions.length === 0) {
-      // The sheet was fetched successfully, but all question/answer fields are currently blank!
       return { questions: SAMPLE_QUESTIONS, isUsingFallback: true };
     }
 
@@ -170,3 +408,4 @@ export async function fetchQuestions(
     return { questions: SAMPLE_QUESTIONS, isUsingFallback: true };
   }
 }
+
