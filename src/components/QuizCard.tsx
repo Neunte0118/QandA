@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { QuizQuestion, QuestionStats } from '../types';
+import { QuizQuestion, QuestionStats, QuizMode } from '../types';
 import { ArrowLeft, Check, X as XIcon } from 'lucide-react';
 import { FormattedText } from './FormattedText';
 import { parseImportance } from '../utils/quizSelector';
@@ -13,6 +13,9 @@ interface QuizCardProps {
   categoryTitle: string;
   isUsingFallback: boolean;
   isReview: boolean;
+  quizMode?: QuizMode;
+  orderIndex?: number;
+  remainingIncorrectCount?: number;
   onShowAnswer: () => void;
   onNext: (isCorrect: boolean) => void;
   onBack: () => void;
@@ -27,6 +30,9 @@ export function QuizCard({
   categoryTitle,
   isUsingFallback,
   isReview,
+  quizMode = 'shuffle',
+  orderIndex = 0,
+  remainingIncorrectCount = 0,
   onShowAnswer,
   onNext,
   onBack,
@@ -254,9 +260,19 @@ export function QuizCard({
           <span className="text-neutral-500 dark:text-neutral-400 truncate max-w-[120px] sm:max-w-none">
             {categoryTitle}
           </span>
-          <span className="font-semibold text-neutral-700 dark:text-neutral-300 bg-neutral-200/70 dark:bg-neutral-800 px-2 py-0.5 rounded-full text-[11px] sm:text-xs">
-            出題: {totalShown}
-          </span>
+          {quizMode === 'order' ? (
+            <span className="font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/60 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px]">
+              順番通り ({orderIndex + 1}/{totalQuestions})
+            </span>
+          ) : quizMode === 'incorrect_only' ? (
+            <span className="font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800/60 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px]">
+              不正解のみ (残:{remainingIncorrectCount}問)
+            </span>
+          ) : (
+            <span className="font-semibold text-neutral-700 dark:text-neutral-300 bg-neutral-200/70 dark:bg-neutral-800 px-2 py-0.5 rounded-full text-[11px] sm:text-xs">
+              出題: {totalShown}
+            </span>
+          )}
         </div>
       </div>
 
@@ -354,8 +370,26 @@ export function QuizCard({
               : 'タップで解答を表示'
           }
         >
-          {/* Card Header: importance on top-right */}
-          <div className="flex items-center justify-end pb-3.5 border-b border-neutral-100 dark:border-neutral-800">
+          {/* Card Header: Mode badge on left, importance on top-right */}
+          <div className="flex items-center justify-between pb-3.5 border-b border-neutral-100 dark:border-neutral-800">
+            <div className="flex items-center gap-1.5">
+              {quizMode === 'order' && (
+                <span className="text-[10px] sm:text-[11px] font-mono font-semibold text-neutral-600 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded">
+                  ID: {question.id}
+                </span>
+              )}
+              {quizMode === 'incorrect_only' && (
+                <span className="text-[10px] sm:text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 px-2 py-0.5 rounded">
+                  苦手特訓 {accuracyPercent !== null ? `(${accuracyPercent}%)` : ''}
+                </span>
+              )}
+              {quizMode === 'shuffle' && isReview && (
+                <span className="text-[10px] sm:text-[11px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-900/60 px-2 py-0.5 rounded">
+                  復習
+                </span>
+              )}
+            </div>
+
             <span
               id="question-importance-label"
               className="text-xs sm:text-sm font-bold text-amber-500 dark:text-amber-400 shrink-0 tracking-widest select-none bg-amber-50/80 dark:bg-amber-950/40 px-2 py-0.5 rounded-md border border-amber-200/60 dark:border-amber-900/40"

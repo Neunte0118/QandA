@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { QuizCategory, QuizQuestion, QuestionStats } from './types';
+import { QuizCategory, QuizQuestion, QuestionStats, QuizMode } from './types';
 import {
   fetchCategoriesWithLocked,
   fetchQuestions,
@@ -7,7 +7,12 @@ import {
   ROOT_SPREADSHEET_CSV_URL,
 } from './utils/api';
 import { removeCategoryCredential } from './utils/crypto';
-import { selectNextQuestion } from './utils/quizSelector';
+import {
+  selectNextQuestion,
+  sortQuestionsById,
+  getIncorrectQuestions,
+  selectNextIncorrectQuestion,
+} from './utils/quizSelector';
 import {
   getQuizStats,
   incrementQuizShown,
@@ -27,6 +32,12 @@ export default function App() {
 
   // Active quiz session states
   const [selectedCategory, setSelectedCategory] = useState<QuizCategory | null>(null);
+  const [quizMode, setQuizMode] = useState<QuizMode>('shuffle');
+  const [sortedQuestions, setSortedQuestions] = useState<QuizQuestion[]>([]);
+  const [orderIndex, setOrderIndex] = useState<number>(0);
+  const orderIndexRef = useRef<number>(0);
+  const [isClearedIncorrectMode, setIsClearedIncorrectMode] = useState<boolean>(false);
+
   const [allQuestions, setAllQuestions] = useState<QuizQuestion[]>([]);
   const [isLoadingQuestions, setIsLoadingQuestions] = useState<boolean>(false);
   const [questionsError, setQuestionsError] = useState<string | null>(null);
@@ -120,9 +131,11 @@ export default function App() {
     setLockedCategories(res.lockedCategories);
   };
 
-  // Handle selecting a category and initializing IndexedDB session
-  const handleSelectCategory = async (category: QuizCategory) => {
+  // Handle selecting a category and initializing IndexedDB session with specified mode
+  const handleSelectCategory = async (category: QuizCategory, mode: QuizMode = 'shuffle') => {
     setSelectedCategory(category);
+    setQuizMode(mode);
+    setIsClearedIncorrectMode(false);
     setIsLoadingQuestions(true);
     setQuestionsError(null);
     setShowAnswer(false);
@@ -159,16 +172,40 @@ export default function App() {
       setQuizShownCount(newShown);
       shownCountRef.current = newShown;
 
-      // 4. Select initial question according to probability and importance
-      const selection = selectNextQuestion(
-        loadedQuestions,
-        savedQuestionStatsMap,
-        newShown
-      );
-
-      setCurrentQuestion(selection.question);
-      setIsReviewQuestion(selection.isReview);
-      setShowAnswer(false);
+      // 4. Select initial question according to chosen mode
+      if (mode === 'order') {
+        const sorted = sortQuestionsById(loadedQuestions);
+        setSortedQuestions(sorted);
+        orderIndexRef.current = 0;
+        setOrderIndex(0);
+        const firstQ = sorted[0];
+        const isAnswered = (savedQuestionStatsMap.get(firstQ.id)?.answered ?? 0) > 0;
+        setCurrentQuestion(firstQ);
+        setIsReviewQuestion(isAnswered);
+        setShowAnswer(false);
+      } else if (mode === 'incorrect_only') {
+        const incorrectList = getIncorrectQuestions(loadedQuestions, savedQuestionStatsMap);
+        if (incorrectList.length === 0) {
+          setIsClearedIncorrectMode(true);
+          setCurrentQuestion(null);
+          setShowAnswer(false);
+        } else {
+          const firstQ = selectNextIncorrectQuestion(incorrectList, savedQuestionStatsMap);
+          setCurrentQuestion(firstQ);
+          setIsReviewQuestion(true);
+          setShowAnswer(false);
+        }
+      } else {
+        // mode === 'shuffle'
+        const selection = selectNextQuestion(
+          loadedQuestions,
+          savedQuestionStatsMap,
+          newShown
+        );
+        setCurrentQuestion(selection.question);
+        setIsReviewQuestion(selection.isReview);
+        setShowAnswer(false);
+      }
     } catch (err) {
       console.error('Failed to start quiz:', err);
       setQuestionsError('問題データの取得に失敗しました。');
@@ -182,7 +219,7 @@ export default function App() {
     setShowAnswer(true);
   };
 
-  // Tap 2: Record result & advance to next question infinitely
+  // Tap 2: Record result & advance to next question according to active mode
   const handleNextQuestion = async (isCorrect: boolean) => {
     if (!selectedCategory || !currentQuestion || allQuestions.length === 0) {
       return;
@@ -192,9 +229,10 @@ export default function App() {
     const questionId = currentQuestion.id;
 
     // 1. Record result into IndexedDB (questionStats)
+    let newMap = new Map(statsMapRef.current);
     try {
       const updatedStat = await recordQuestionAnswer(quizId, questionId, isCorrect);
-      const newMap = new Map(statsMapRef.current);
+      newMap = new Map(statsMapRef.current);
       newMap.set(questionId, updatedStat);
       statsMapRef.current = newMap;
       setQuestionStatsMap(newMap);
@@ -212,18 +250,45 @@ export default function App() {
       console.error('Failed to increment quiz shown in IndexedDB:', e);
     }
 
-    // 3. Select next question based on (shown / total)^2 accuracy review logic
-    const selection = selectNextQuestion(
-      allQuestions,
-      statsMapRef.current,
-      updatedShown,
-      currentQuestion.id
-    );
-
-    // 4. Update view
-    setCurrentQuestion(selection.question);
-    setIsReviewQuestion(selection.isReview);
-    setShowAnswer(false);
+    // 3. Select next question based on current mode
+    if (quizMode === 'order') {
+      const sorted = sortedQuestions.length > 0 ? sortedQuestions : sortQuestionsById(allQuestions);
+      const nextIndex = (orderIndexRef.current + 1) % sorted.length;
+      orderIndexRef.current = nextIndex;
+      setOrderIndex(nextIndex);
+      const nextQ = sorted[nextIndex];
+      const isAnswered = (newMap.get(nextQ.id)?.answered ?? 0) > 0;
+      setCurrentQuestion(nextQ);
+      setIsReviewQuestion(isAnswered);
+      setShowAnswer(false);
+    } else if (quizMode === 'incorrect_only') {
+      const remainingIncorrect = getIncorrectQuestions(allQuestions, newMap);
+      if (remainingIncorrect.length === 0) {
+        setIsClearedIncorrectMode(true);
+        setCurrentQuestion(null);
+        setShowAnswer(false);
+      } else {
+        const nextQ = selectNextIncorrectQuestion(
+          remainingIncorrect,
+          newMap,
+          currentQuestion.id
+        );
+        setCurrentQuestion(nextQ);
+        setIsReviewQuestion(true);
+        setShowAnswer(false);
+      }
+    } else {
+      // mode === 'shuffle'
+      const selection = selectNextQuestion(
+        allQuestions,
+        newMap,
+        updatedShown,
+        currentQuestion.id
+      );
+      setCurrentQuestion(selection.question);
+      setIsReviewQuestion(selection.isReview);
+      setShowAnswer(false);
+    }
   };
 
   // Return to category list
@@ -232,6 +297,7 @@ export default function App() {
     setAllQuestions([]);
     setCurrentQuestion(null);
     setShowAnswer(false);
+    setIsClearedIncorrectMode(false);
   };
 
   return (
@@ -289,8 +355,45 @@ export default function App() {
               単元一覧に戻る
             </button>
           </div>
+        ) : isClearedIncorrectMode ? (
+          /* All incorrect questions cleared celebration view */
+          <div className="w-full max-w-md bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-6 sm:p-8 text-center shadow-xs animate-scaleUp">
+            <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-2xl shadow-inner">
+              🎉
+            </div>
+            <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-1">
+              苦手問題をすべてクリア！
+            </h3>
+            <p className="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 mb-6 leading-relaxed">
+              正答率90%未満の問題がなくなりました。<br />
+              素晴らしい学習成果です！
+            </p>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => selectedCategory && handleSelectCategory(selectedCategory, 'shuffle')}
+                className="w-full py-2.5 px-4 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+              >
+                シャッフルで総復習する
+              </button>
+              <button
+                type="button"
+                onClick={() => selectedCategory && handleSelectCategory(selectedCategory, 'order')}
+                className="w-full py-2.5 px-4 bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+              >
+                順番通りに通しで解く
+              </button>
+              <button
+                type="button"
+                onClick={handleBackToCategories}
+                className="w-full py-2.5 px-4 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+              >
+                単元一覧に戻る
+              </button>
+            </div>
+          </div>
         ) : currentQuestion ? (
-          /* Active Infinite Question Card */
+          /* Active Question Card */
           <QuizCard
             question={currentQuestion}
             questionStats={questionStatsMap.get(currentQuestion.id)}
@@ -300,6 +403,9 @@ export default function App() {
             categoryTitle={selectedCategory.title}
             isUsingFallback={isUsingFallback}
             isReview={isReviewQuestion}
+            quizMode={quizMode}
+            orderIndex={orderIndex}
+            remainingIncorrectCount={getIncorrectQuestions(allQuestions, questionStatsMap).length}
             onShowAnswer={handleShowAnswer}
             onNext={handleNextQuestion}
             onBack={handleBackToCategories}

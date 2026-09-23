@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { QuizCategory } from '../types';
+import { QuizCategory, QuizMode } from '../types';
+import { getQuizQuestionStatsMap } from '../utils/db';
 import {
   BookOpen,
   RefreshCw,
@@ -13,6 +14,9 @@ import {
   EyeOff,
   Trash2,
   Lock,
+  ListOrdered,
+  Shuffle,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface CategorySelectProps {
@@ -21,7 +25,7 @@ interface CategorySelectProps {
   error: string | null;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
-  onSelect: (category: QuizCategory) => void;
+  onSelect: (category: QuizCategory, mode: QuizMode) => void;
   onRefresh: () => void;
   onAddEncryptedCategory: (
     encryptedId: string,
@@ -43,6 +47,12 @@ export function CategorySelect({
 }: CategorySelectProps) {
   const [selectedTitle, setSelectedTitle] = useState<string | null>(null);
 
+  // Mode Selection Modal state
+  const [categoryForModeSelect, setCategoryForModeSelect] = useState<QuizCategory | null>(null);
+  const [incorrectCount, setIncorrectCount] = useState<number | null>(null);
+  const [isLoadingStats, setIsLoadingStats] = useState<boolean>(false);
+  const [modeSelectWarning, setModeSelectWarning] = useState<string | null>(null);
+
   // Add Category Modal state
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [inputId, setInputId] = useState<string>('');
@@ -53,6 +63,41 @@ export function CategorySelect({
 
   // Delete Confirmation Modal state
   const [categoryToDelete, setCategoryToDelete] = useState<QuizCategory | null>(null);
+
+  const handleChooseCategory = async (cat: QuizCategory) => {
+    setSelectedTitle(cat.title);
+    setCategoryForModeSelect(cat);
+    setModeSelectWarning(null);
+    setIsLoadingStats(true);
+    setIncorrectCount(null);
+
+    try {
+      const statsMap = await getQuizQuestionStatsMap(cat.id);
+      let count = 0;
+      for (const stat of statsMap.values()) {
+        if (stat.answered > 0 && stat.correct / stat.answered < 0.9) {
+          count++;
+        }
+      }
+      setIncorrectCount(count);
+    } catch {
+      setIncorrectCount(0);
+    } finally {
+      setIsLoadingStats(false);
+    }
+  };
+
+  const handleStartMode = (mode: QuizMode) => {
+    if (!categoryForModeSelect) return;
+    if (mode === 'incorrect_only' && incorrectCount === 0) {
+      setModeSelectWarning('正答率90%未満の問題がありません。まずは「シャッフル」や「順番通り」で学習してください。');
+      return;
+    }
+    const cat = categoryForModeSelect;
+    setCategoryForModeSelect(null);
+    setModeSelectWarning(null);
+    onSelect(cat, mode);
+  };
 
   const handleOpenModal = () => {
     setInputId('');
@@ -186,8 +231,7 @@ export function CategorySelect({
                     id={`category-item-${idx}`}
                     type="button"
                     onClick={() => {
-                      setSelectedTitle(cat.title);
-                      onSelect(cat);
+                      handleChooseCategory(cat);
                     }}
                     className="flex-1 min-w-0 text-left px-4 py-3.5 flex items-center gap-3 active:opacity-75 touch-manipulation cursor-pointer"
                   >
@@ -229,8 +273,7 @@ export function CategorySelect({
                     <button
                       type="button"
                       onClick={() => {
-                        setSelectedTitle(cat.title);
-                        onSelect(cat);
+                        handleChooseCategory(cat);
                       }}
                       className="p-1.5 text-xs text-neutral-400 dark:text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 font-medium transition-colors cursor-pointer"
                     >
@@ -376,6 +419,159 @@ export function CategorySelect({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Mode Selection Modal: 順番通り / シャッフル / 不正解のみ */}
+      {categoryForModeSelect && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="mode-select-title"
+        >
+          <div className="w-full max-w-sm bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 sm:p-6 shadow-xl relative animate-scaleUp">
+            {/* Close button */}
+            <button
+              type="button"
+              onClick={() => {
+                setCategoryForModeSelect(null);
+                setModeSelectWarning(null);
+              }}
+              className="absolute top-4 right-4 p-1.5 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors cursor-pointer"
+              aria-label="閉じる"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Header */}
+            <div className="mb-4 pr-6">
+              <span className="text-[11px] font-bold tracking-wider uppercase text-neutral-400 dark:text-neutral-500 block mb-0.5">
+                出題モードを選択
+              </span>
+              <h3
+                id="mode-select-title"
+                className="text-base sm:text-lg font-bold text-neutral-900 dark:text-neutral-100 truncate"
+              >
+                {categoryForModeSelect.title}
+              </h3>
+            </div>
+
+            {/* Warning Message */}
+            {modeSelectWarning && (
+              <div className="p-2.5 mb-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs flex items-start gap-1.5 animate-fadeIn">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                <span className="flex-1 leading-snug">{modeSelectWarning}</span>
+              </div>
+            )}
+
+            {/* Mode Option Buttons */}
+            <div className="space-y-2.5">
+              {/* 1. 順番通りに開始 */}
+              <button
+                id="mode-order-button"
+                type="button"
+                onClick={() => handleStartMode('order')}
+                className="w-full text-left p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 hover:border-emerald-500 dark:hover:border-emerald-500 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 active:scale-[0.99] transition-all flex items-center justify-between group cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                    <ListOrdered className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <div className="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-300 transition-colors">
+                      順番通りに開始
+                    </div>
+                    <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
+                      IDの昇順（1, 2, 3...）に順番に出題
+                    </div>
+                  </div>
+                </div>
+              </button>
+
+              {/* 2. シャッフルして開始 */}
+              <button
+                id="mode-shuffle-button"
+                type="button"
+                onClick={() => handleStartMode('shuffle')}
+                className="w-full text-left p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 active:scale-[0.99] transition-all flex items-center justify-between group cursor-pointer relative"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="w-9 h-9 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                    <Shuffle className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-indigo-700 dark:group-hover:text-indigo-300 transition-colors">
+                        シャッフルして開始
+                      </span>
+                      <span className="text-[9px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded border border-indigo-200/80 dark:border-indigo-800/60">
+                        おすすめ
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
+                      重要度と正答率に合わせて最適に出題
+                    </div>
+                  </div>
+                </div>
+              </button>
+
+              {/* 3. 不正解のみ出題 */}
+              <button
+                id="mode-incorrect-button"
+                type="button"
+                onClick={() => handleStartMode('incorrect_only')}
+                className={`w-full text-left p-3.5 rounded-xl border transition-all flex items-center justify-between group cursor-pointer ${
+                  incorrectCount === 0
+                    ? 'border-neutral-200/70 dark:border-neutral-800/70 opacity-60 bg-neutral-50/50 dark:bg-neutral-800/20'
+                    : 'border-neutral-200 dark:border-neutral-800 hover:border-rose-500 dark:hover:border-rose-500 hover:bg-rose-50/50 dark:hover:bg-rose-950/20 active:scale-[0.99]'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="w-9 h-9 rounded-lg bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-rose-700 dark:group-hover:text-rose-300 transition-colors">
+                        不正解のみ出題
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                          incorrectCount === 0
+                            ? 'text-neutral-400 bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700'
+                            : 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950 border-rose-200/80 dark:border-rose-800/60'
+                        }`}
+                      >
+                        {isLoadingStats
+                          ? '確認中...'
+                          : incorrectCount !== null
+                          ? `${incorrectCount}問`
+                          : '苦手特訓'}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
+                      正答率が90%未満のもののみ出題
+                    </div>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            {/* Cancel Button */}
+            <div className="mt-4 pt-3 border-t border-neutral-100 dark:border-neutral-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setCategoryForModeSelect(null);
+                  setModeSelectWarning(null);
+                }}
+                className="px-3.5 py-1.5 text-xs font-semibold text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors cursor-pointer"
+              >
+                キャンセル
+              </button>
+            </div>
           </div>
         </div>
       )}

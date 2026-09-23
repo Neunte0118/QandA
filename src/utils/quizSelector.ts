@@ -164,3 +164,87 @@ export function selectNextQuestion(
   const chosen = pickWeightedByImportance(pool);
   return { question: chosen, isReview: false };
 }
+
+/**
+ * Sorts questions by ID in ascending order (natural alphanumeric sort: 1, 2, 10, etc.)
+ */
+export function sortQuestionsById(questions: QuizQuestion[]): QuizQuestion[] {
+  return [...questions].sort((a, b) => {
+    return a.id.localeCompare(b.id, undefined, { numeric: true, sensitivity: 'base' });
+  });
+}
+
+/**
+ * Filter questions that have been answered and have an accuracy of strictly less than 90% (< 0.90)
+ */
+export function getIncorrectQuestions(
+  allQuestions: QuizQuestion[],
+  statsMap: Map<string, QuestionStats>
+): QuizQuestion[] {
+  return allQuestions.filter((q) => {
+    const stat = statsMap.get(q.id);
+    if (!stat || stat.answered === 0) return false;
+    const accuracy = stat.correct / stat.answered;
+    return accuracy < 0.9;
+  });
+}
+
+/**
+ * Select the next question for "不正解のみ出題" mode.
+ * Prioritizes lowest accuracy and higher importance, and avoids immediate back-to-back repetitions.
+ */
+export function selectNextIncorrectQuestion(
+  incorrectQuestions: QuizQuestion[],
+  statsMap: Map<string, QuestionStats>,
+  previousQuestionId?: string
+): QuizQuestion {
+  if (incorrectQuestions.length === 0) {
+    throw new Error('No incorrect questions available');
+  }
+
+  if (incorrectQuestions.length === 1) {
+    return incorrectQuestions[0];
+  }
+
+  // Prevent consecutive repetition if 2 or more questions exist
+  let candidates = incorrectQuestions.filter((q) => q.id !== previousQuestionId);
+  if (candidates.length === 0) {
+    candidates = incorrectQuestions;
+  }
+
+  // Sort candidates by:
+  // 1. Lowest accuracy first
+  // 2. Highest importance first
+  // 3. Oldest lastShown first
+  candidates.sort((a, b) => {
+    const statA = statsMap.get(a.id);
+    const statB = statsMap.get(b.id);
+    const accA = statA && statA.answered > 0 ? statA.correct / statA.answered : 0;
+    const accB = statB && statB.answered > 0 ? statB.correct / statB.answered : 0;
+    if (Math.abs(accA - accB) > 0.05) {
+      return accA - accB;
+    }
+    const impA = parseImportance(a.importance);
+    const impB = parseImportance(b.importance);
+    if (impA !== impB) {
+      return impB - impA;
+    }
+    return (statA?.lastShown ?? 0) - (statB?.lastShown ?? 0);
+  });
+
+  // Pick among the lowest accuracy tier using importance-weighted random
+  const lowestAccStat = statsMap.get(candidates[0].id);
+  const lowestAccVal =
+    lowestAccStat && lowestAccStat.answered > 0
+      ? lowestAccStat.correct / lowestAccStat.answered
+      : 0;
+
+  const lowestTier = candidates.filter((c) => {
+    const st = statsMap.get(c.id);
+    const acc = st && st.answered > 0 ? st.correct / st.answered : 0;
+    return Math.abs(acc - lowestAccVal) < 0.1;
+  });
+
+  return pickWeightedByImportance(lowestTier);
+}
+

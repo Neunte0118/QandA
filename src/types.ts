@@ -1,3 +1,5 @@
+export type QuizMode = 'order' | 'shuffle' | 'incorrect_only';
+
 export interface QuizCategory {
   id: string; // quizId
   title: string;
