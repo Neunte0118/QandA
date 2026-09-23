@@ -87,16 +87,22 @@ export function selectNextQuestion(
     }
   }
 
-  // Option A: 復習確率 = (1 - これまでの問題の正答率)
-  const overallAccuracy =
-    totalAnsweredCount > 0 ? totalCorrectCount / totalAnsweredCount : 1.0;
-  const reviewProbability = Math.min(1, Math.max(0, 1 - overallAccuracy));
+  // 最初の50問（解答数が50問未満）までは必ず新規問題しか出さない
+  // 未出題の問題が残っている限り、50問に達するまでは復習を一切行わない
+  const isWithinFirst50 = totalAnsweredCount < 50;
+  const hasUnseen = unseenQuestions.length > 0;
 
-  // 未出題の問題がすべて無くなった場合は、全問が復習対象（100%復習）
-  const allSeen = unseenQuestions.length === 0;
-  const shouldReview =
-    answeredQuestions.length > 0 &&
-    (allSeen || Math.random() < reviewProbability);
+  let shouldReview = false;
+  if (!hasUnseen) {
+    // 未出題の問題がすべて無くなった場合は復習モード
+    shouldReview = answeredQuestions.length > 0;
+  } else if (!isWithinFirst50) {
+    // 50問経過後は、(1 - これまでの正答率) の確率で復習を出題
+    const overallAccuracy =
+      totalAnsweredCount > 0 ? totalCorrectCount / totalAnsweredCount : 1.0;
+    const reviewProbability = Math.min(1, Math.max(0, 1 - overallAccuracy));
+    shouldReview = answeredQuestions.length > 0 && Math.random() < reviewProbability;
+  }
 
   if (shouldReview) {
     // 復習対象の候補（直前の問題と同一のものを除外して連続出題を防止）
