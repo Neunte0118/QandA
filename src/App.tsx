@@ -23,6 +23,7 @@ import {
 } from './utils/db';
 import { CategorySelect } from './components/CategorySelect';
 import { QuizCard } from './components/QuizCard';
+import { QuestionListView } from './components/QuestionListView';
 import { PWAInstallButton } from './components/PWAInstallButton';
 
 export default function App() {
@@ -31,6 +32,16 @@ export default function App() {
   const [lockedCategories, setLockedCategories] = useState<QuizCategory[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = useState<boolean>(true);
   const [categoriesError, setCategoriesError] = useState<string | null>(null);
+
+  // Question List View states
+  const [isViewingQuestionList, setIsViewingQuestionList] = useState<boolean>(false);
+  const [questionListCategory, setQuestionListCategory] = useState<QuizCategory | null>(null);
+  const [questionListItems, setQuestionListItems] = useState<QuizQuestion[]>([]);
+  const [questionListStatsMap, setQuestionListStatsMap] = useState<Map<string, QuestionStats>>(
+    new Map()
+  );
+  const [isLoadingQuestionList, setIsLoadingQuestionList] = useState<boolean>(false);
+  const [questionListError, setQuestionListError] = useState<string | null>(null);
 
   // Active quiz session states
   const [selectedCategory, setSelectedCategory] = useState<QuizCategory | null>(null);
@@ -137,6 +148,10 @@ export default function App() {
   const handleResetCategoryData = async (quizId: string) => {
     try {
       await resetQuizStats(quizId);
+      // If question list is open for this category, clear its stats map
+      if (questionListCategory && questionListCategory.id === quizId) {
+        setQuestionListStatsMap(new Map());
+      }
       // If currently inside the active quiz session for this category, reset memory state
       if (selectedCategory && selectedCategory.id === quizId) {
         const emptyMap = new Map<string, QuestionStats>();
@@ -172,6 +187,7 @@ export default function App() {
   const handleClearAllData = async () => {
     try {
       await clearAllLearningData();
+      setQuestionListStatsMap(new Map());
       const emptyMap = new Map<string, QuestionStats>();
       statsMapRef.current = emptyMap;
       setQuestionStatsMap(emptyMap);
@@ -198,6 +214,52 @@ export default function App() {
     } catch (e) {
       console.error('Failed to clear all learning data:', e);
     }
+  };
+
+  // Handle opening Question List View for a category
+  const handleOpenQuestionList = async (category: QuizCategory) => {
+    setIsViewingQuestionList(true);
+    setQuestionListCategory(category);
+    setIsLoadingQuestionList(true);
+    setQuestionListError(null);
+
+    try {
+      // Reuse loaded questions if viewing the currently active quiz category
+      if (selectedCategory && selectedCategory.id === category.id && allQuestions.length > 0) {
+        setQuestionListItems(allQuestions);
+        const stats = await getQuizQuestionStatsMap(category.id);
+        setQuestionListStatsMap(stats);
+      } else {
+        const { questions: loadedQuestions } = await fetchQuestions(
+          category.url,
+          category.decryptionKey
+        );
+        setQuestionListItems(loadedQuestions);
+        const stats = await getQuizQuestionStatsMap(category.id);
+        setQuestionListStatsMap(stats);
+      }
+    } catch (err) {
+      console.error('Failed to load questions for question list:', err);
+      setQuestionListError('一問一答一覧の取得に失敗しました。');
+    } finally {
+      setIsLoadingQuestionList(false);
+    }
+  };
+
+  // Handle switching category inside Question List View
+  const handleSelectCategoryInQuestionList = (category: QuizCategory) => {
+    handleOpenQuestionList(category);
+  };
+
+  // Handle starting a quiz from inside Question List View
+  const handleStartQuizFromList = (category: QuizCategory, mode: QuizMode) => {
+    setIsViewingQuestionList(false);
+    handleSelectCategory(category, mode);
+  };
+
+  // Handle returning from Question List View
+  const handleBackFromQuestionList = () => {
+    setIsViewingQuestionList(false);
   };
 
   // Handle selecting a category and initializing IndexedDB session with specified mode
@@ -370,7 +432,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-dvh w-full max-w-full overflow-x-hidden bg-neutral-50 dark:bg-neutral-950 text-neutral-800 dark:text-neutral-100 flex flex-col justify-between p-3 sm:p-6 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(0.5rem+env(safe-area-inset-top))] font-sans antialiased transition-colors">
+    <div className="min-h-dvh w-full max-w-full overflow-x-clip bg-neutral-50 dark:bg-neutral-950 text-neutral-800 dark:text-neutral-100 flex flex-col justify-between p-3 sm:p-6 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(0.5rem+env(safe-area-inset-top))] font-sans antialiased transition-colors touch-pan-y">
       {/* Top Header */}
       <header className="w-full max-w-xl mx-auto py-2 sm:py-3 px-1 flex items-center justify-between">
         <div className="text-left">
@@ -378,7 +440,9 @@ export default function App() {
             一問一答
           </h1>
           <p className="text-[11px] sm:text-xs text-neutral-500 dark:text-neutral-400 truncate max-w-[200px] sm:max-w-none">
-            {selectedCategory
+            {isViewingQuestionList && questionListCategory
+              ? `一覧: ${questionListCategory.title}`
+              : selectedCategory
               ? selectedCategory.title
               : 'スプレッドシートから読み込んで学習'}
           </p>
@@ -391,9 +455,26 @@ export default function App() {
       </header>
 
       {/* Main Content Area */}
-      <main className="w-full max-w-full flex-1 flex flex-col justify-center items-center my-2 sm:my-4 overflow-x-clip overflow-y-clip">
-        {/* Step 1: Category Selection */}
-        {!selectedCategory ? (
+      <main
+        className={`w-full max-w-full flex-1 flex flex-col ${
+          isViewingQuestionList ? 'justify-start items-stretch' : 'justify-center items-center'
+        } my-2 sm:my-4`}
+      >
+        {/* Step 0: Question List View */}
+        {isViewingQuestionList && questionListCategory ? (
+          <QuestionListView
+            category={questionListCategory}
+            allCategories={categories}
+            questions={questionListItems}
+            statsMap={questionListStatsMap}
+            isLoading={isLoadingQuestionList}
+            error={questionListError}
+            onSelectCategory={handleSelectCategoryInQuestionList}
+            onStartQuiz={handleStartQuizFromList}
+            onBack={handleBackFromQuestionList}
+          />
+        ) : !selectedCategory ? (
+          /* Step 1: Category Selection */
           <CategorySelect
             categories={categories}
             isLoading={isLoadingCategories}
@@ -406,6 +487,7 @@ export default function App() {
             onRemoveCredential={handleRemoveCredential}
             onResetCategoryData={handleResetCategoryData}
             onClearAllData={handleClearAllData}
+            onOpenQuestionList={handleOpenQuestionList}
           />
         ) : isLoadingQuestions ? (
           /* Loading questions */
@@ -481,6 +563,7 @@ export default function App() {
             onNext={handleNextQuestion}
             onBack={handleBackToCategories}
             onResetCategoryData={() => handleResetCategoryData(selectedCategory.id)}
+            onOpenQuestionList={() => handleOpenQuestionList(selectedCategory)}
           />
         ) : null}
       </main>

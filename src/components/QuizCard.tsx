@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { QuizQuestion, QuestionStats, QuizMode } from '../types';
-import { ArrowLeft, Check, X as XIcon, Trash2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Check, X as XIcon, Trash2, RefreshCw, FileText } from 'lucide-react';
 import { FormattedText } from './FormattedText';
 import { parseImportance } from '../utils/quizSelector';
 
@@ -20,6 +20,7 @@ interface QuizCardProps {
   onNext: (isCorrect: boolean) => void;
   onBack: () => void;
   onResetCategoryData?: () => Promise<void>;
+  onOpenQuestionList?: () => void;
 }
 
 export function QuizCard({
@@ -38,6 +39,7 @@ export function QuizCard({
   onNext,
   onBack,
   onResetCategoryData,
+  onOpenQuestionList,
 }: QuizCardProps) {
   // Swipe drag state
   const [dragOffset, setDragOffset] = useState<number>(0);
@@ -278,6 +280,19 @@ export function QuizCard({
             <span className="font-semibold text-neutral-700 dark:text-neutral-300 bg-neutral-200/70 dark:bg-neutral-800 px-2 py-0.5 rounded-full text-[11px] sm:text-xs">
               出題: {totalShown}
             </span>
+          )}
+
+          {onOpenQuestionList && (
+            <button
+              id="quiz-open-question-list-button"
+              type="button"
+              onClick={onOpenQuestionList}
+              className="p-1 text-neutral-400 hover:text-neutral-900 dark:text-neutral-500 dark:hover:text-neutral-100 hover:bg-neutral-200/60 dark:hover:bg-neutral-800 rounded-lg transition-colors cursor-pointer"
+              title="一問一答一覧を表示"
+              aria-label="一問一答一覧を表示"
+            >
+              <FileText className="w-3.5 h-3.5" />
+            </button>
           )}
 
           {onResetCategoryData && (

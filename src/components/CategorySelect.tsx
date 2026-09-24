@@ -17,6 +17,7 @@ import {
   ListOrdered,
   Shuffle,
   AlertTriangle,
+  FileText,
 } from 'lucide-react';
 
 interface CategorySelectProps {
@@ -34,6 +35,7 @@ interface CategorySelectProps {
   onRemoveCredential: (category: QuizCategory) => void;
   onResetCategoryData?: (quizId: string) => Promise<void>;
   onClearAllData?: () => Promise<void>;
+  onOpenQuestionList?: (category: QuizCategory) => void;
 }
 
 export function CategorySelect({
@@ -48,6 +50,7 @@ export function CategorySelect({
   onRemoveCredential,
   onResetCategoryData,
   onClearAllData,
+  onOpenQuestionList,
 }: CategorySelectProps) {
   const [selectedTitle, setSelectedTitle] = useState<string | null>(null);
 
@@ -315,7 +318,7 @@ export function CategorySelect({
                     </div>
                   </button>
 
-                  <div className="flex items-center gap-1 pr-3 shrink-0">
+                  <div className="flex items-center gap-1 pr-2.5 shrink-0">
                     {cat.isEncrypted && (
                       <button
                         type="button"
@@ -335,7 +338,7 @@ export function CategorySelect({
                       onClick={() => {
                         handleChooseCategory(cat);
                       }}
-                      className="p-1.5 text-xs text-neutral-400 dark:text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 font-medium transition-colors cursor-pointer"
+                      className="p-1.5 text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 font-semibold transition-colors cursor-pointer"
                     >
                       開始 &rarr;
                     </button>
@@ -346,17 +349,35 @@ export function CategorySelect({
           </div>
         )}
 
-        {/* Action Buttons: Add Category & Clear Learning Data */}
-        <div className="mt-3 sm:mt-4 pt-3 border-t border-neutral-100 dark:border-neutral-800 flex items-center gap-2">
+        {/* Action Button: Add Category inside card */}
+        <div className="mt-3 sm:mt-4 pt-3 border-t border-neutral-100 dark:border-neutral-800 flex items-center">
           <button
             id="add-encrypted-category-button"
             type="button"
             onClick={handleOpenModal}
-            className="flex-1 py-2.5 px-3 border border-dashed border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800/40 active:bg-neutral-100 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
+            className="w-full py-2.5 px-3 border border-dashed border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800/40 active:bg-neutral-100 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>単元を追加</span>
           </button>
+        </div>
+      </div>
+
+      {/* Outside Actions: 一問一答一覧 & 学習データ削除 (赤色) placed directly below the card div */}
+      <div className="mt-3 sm:mt-3.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {categories.length > 0 && onOpenQuestionList && (
+          <button
+            id="open-question-list-button"
+            type="button"
+            onClick={() => onOpenQuestionList(categories[0])}
+            className="w-full py-2.5 px-3.5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/60 active:bg-neutral-100 dark:active:bg-neutral-800 text-neutral-800 dark:text-neutral-200 rounded-xl flex items-center justify-center gap-2 text-xs font-bold shadow-xs transition-colors cursor-pointer"
+            title="一問一答一覧を開く"
+          >
+            <FileText className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+            <span>一問一答一覧</span>
+          </button>
+        )}
+        {onClearAllData && (
           <button
             id="open-clear-data-modal-button"
             type="button"
@@ -365,13 +386,13 @@ export function CategorySelect({
               setDataClearedNotice(null);
               setIsClearDataModalOpen(true);
             }}
-            className="py-2.5 px-3 border border-neutral-200 dark:border-neutral-800 hover:border-rose-300 dark:hover:border-rose-900 hover:bg-rose-50/50 dark:hover:bg-rose-950/20 active:bg-rose-100/40 text-neutral-600 hover:text-rose-600 dark:text-neutral-400 dark:hover:text-rose-400 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold transition-colors cursor-pointer"
+            className="w-full py-2.5 px-3.5 border border-red-200 dark:border-red-900/60 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/50 active:bg-red-200/70 text-red-600 dark:text-red-400 rounded-xl flex items-center justify-center gap-2 text-xs font-bold shadow-xs transition-colors cursor-pointer"
             title="学習データ（履歴・正答率）を削除"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
             <span>学習データ削除</span>
           </button>
-        </div>
+        )}
       </div>
 
       {/* Modal: Add Category */}
@@ -631,6 +652,36 @@ export function CategorySelect({
                   </div>
                 </div>
               </button>
+
+              {/* 4. 一問一答一覧を見る */}
+              {onOpenQuestionList && (
+                <button
+                  id="mode-view-question-list-button"
+                  type="button"
+                  onClick={() => {
+                    const cat = categoryForModeSelect;
+                    setCategoryForModeSelect(null);
+                    onOpenQuestionList(cat);
+                  }}
+                  className="w-full text-left p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 active:scale-[0.99] transition-all flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                      <FileText className="w-5 h-5" />
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors">
+                          一問一答一覧を見る
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
+                        各問題の正答率・出題数・最終日時・重要度を確認
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              )}
             </div>
 
             {/* Footer: Reset Category Data & Cancel / Confirm Reset */}
