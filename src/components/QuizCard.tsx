@@ -1,8 +1,19 @@
 import { useEffect, useState, useRef } from 'react';
 import { QuizQuestion, QuestionStats, QuizMode } from '../types';
-import { ArrowLeft, Check, X as XIcon, Trash2, RefreshCw, FileText } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  X as XIcon,
+  Trash2,
+  RefreshCw,
+  FileText,
+  ThumbsUp,
+  ThumbsDown,
+  Flag,
+} from 'lucide-react';
 import { FormattedText } from './FormattedText';
 import { parseImportance } from '../utils/quizSelector';
+import { QuestionReportModal } from './QuestionReportModal';
 
 interface QuizCardProps {
   question: QuizQuestion;
@@ -22,6 +33,31 @@ interface QuizCardProps {
   onResetCategoryData?: () => Promise<void>;
   onOpenQuestionList?: () => void;
 }
+
+// Helper to submit assessment to Google Form (entry.1180797943=id, entry.429753334=good/bad)
+const submitAssessmentToGoogleForm = (questionId: string, assessment: 'good' | 'bad') => {
+  try {
+    const formData = new URLSearchParams();
+    formData.append('entry.1180797943', questionId);
+    formData.append('entry.429753334', assessment);
+    fetch(
+      'https://docs.google.com/forms/d/e/1FAIpQLScarli5hXQ2t_aKZSZr_bCxB9wFqdfsp4E1uphkfWHH1E8WtQ/formResponse',
+      {
+        method: 'POST',
+        mode: 'no-cors',
+        keepalive: true,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString(),
+      }
+    ).catch((err) => {
+      console.error('Failed to submit assessment to Google Form:', err);
+    });
+  } catch (err) {
+    console.error('Failed to submit assessment to Google Form:', err);
+  }
+};
 
 export function QuizCard({
   question,
@@ -51,6 +87,41 @@ export function QuizCard({
   // Reset learning data modal state
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState<boolean>(false);
   const [isResetting, setIsResetting] = useState<boolean>(false);
+
+  // Question report modal & good/bad assessment states
+  const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
+  const [currentAssessment, setCurrentAssessment] = useState<'good' | 'bad' | null>(null);
+  const pendingAssessmentRef = useRef<'good' | 'bad' | null>(null);
+  const hasAssessmentChangedRef = useRef<boolean>(false);
+
+  // Sync assessment from localStorage for current question
+  useEffect(() => {
+    hasAssessmentChangedRef.current = false;
+    try {
+      const saved = localStorage.getItem(`assessment_${question.id}`);
+      if (saved === 'good' || saved === 'bad') {
+        setCurrentAssessment(saved);
+        pendingAssessmentRef.current = saved;
+      } else {
+        setCurrentAssessment(null);
+        pendingAssessmentRef.current = null;
+      }
+    } catch {
+      setCurrentAssessment(null);
+      pendingAssessmentRef.current = null;
+    }
+  }, [question.id]);
+
+  // Toggle good/bad assessment (selection only, submitted when moving to next question)
+  // Clicking the currently active rating deselects it so nothing is submitted.
+  const handleAssessmentToggle = (type: 'good' | 'bad') => {
+    hasAssessmentChangedRef.current = true;
+    setCurrentAssessment((prev) => {
+      const next = prev === type ? null : type;
+      pendingAssessmentRef.current = next;
+      return next;
+    });
+  };
 
   // Transition & visual feedback states
   const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null);
@@ -282,19 +353,6 @@ export function QuizCard({
             </span>
           )}
 
-          {onOpenQuestionList && (
-            <button
-              id="quiz-open-question-list-button"
-              type="button"
-              onClick={onOpenQuestionList}
-              className="p-1 text-neutral-400 hover:text-neutral-900 dark:text-neutral-500 dark:hover:text-neutral-100 hover:bg-neutral-200/60 dark:hover:bg-neutral-800 rounded-lg transition-colors cursor-pointer"
-              title="一問一答一覧を表示"
-              aria-label="一問一答一覧を表示"
-            >
-              <FileText className="w-3.5 h-3.5" />
-            </button>
-          )}
-
           {onResetCategoryData && (
             <button
               id="quiz-reset-data-button"
@@ -387,7 +445,7 @@ export function QuizCard({
                 ? '#ef4444'
                 : undefined,
           }}
-          className={`relative z-10 w-full min-h-[300px] sm:min-h-[360px] bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 sm:p-7 flex flex-col justify-between shadow-xs select-none text-left touch-pan-y ${
+          className={`relative z-10 w-full h-[380px] sm:h-[430px] bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-4 sm:p-6 flex flex-col justify-between shadow-xs select-none text-left touch-pan-y ${
             !showAnswer
               ? 'cursor-pointer hover:border-neutral-300 dark:hover:border-neutral-700'
               : 'cursor-default'
@@ -405,7 +463,7 @@ export function QuizCard({
           }
         >
           {/* Card Header: Mode badge on left, importance on top-right */}
-          <div className="flex items-center justify-between pb-3.5 border-b border-neutral-100 dark:border-neutral-800">
+          <div className="flex items-center justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
             <div className="flex items-center gap-1.5">
               {quizMode === 'order' && (
                 <span className="text-[10px] sm:text-[11px] font-mono font-semibold text-neutral-600 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded">
@@ -435,15 +493,15 @@ export function QuizCard({
           </div>
 
           {/* Card Content: Question and Answer */}
-          <div className="flex-1 py-4 sm:py-5 flex flex-col justify-start gap-4 sm:gap-6">
+          <div className="flex-1 min-h-0 overflow-y-auto py-3 sm:py-4 flex flex-col justify-start gap-3 sm:gap-4">
             {/* Question Text */}
             <div>
-              <div className="text-[10px] sm:text-[11px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1.5">
+              <div className="text-[10px] sm:text-[11px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1">
                 問題
               </div>
               <p
                 id="question-text"
-                className="text-base sm:text-xl font-medium text-neutral-900 dark:text-neutral-100 leading-relaxed break-words"
+                className="text-base sm:text-lg font-medium text-neutral-900 dark:text-neutral-100 leading-relaxed break-words"
               >
                 <FormattedText text={question.question} />
               </p>
@@ -451,7 +509,7 @@ export function QuizCard({
 
             {/* Answer Text */}
             {showAnswer ? (
-              <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800 animate-fadeIn">
+              <div className="pt-3 border-t border-neutral-100 dark:border-neutral-800 animate-fadeIn">
                 <div className="flex items-center justify-between mb-1">
                   <div className="text-[10px] sm:text-[11px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">
                     解答
@@ -466,7 +524,7 @@ export function QuizCard({
                 </div>
                 <p
                   id="answer-text"
-                  className="text-xl sm:text-2xl font-bold text-red-600 dark:text-rose-400 leading-snug break-words"
+                  className="text-lg sm:text-xl font-bold text-red-600 dark:text-rose-400 leading-snug break-words"
                 >
                   <FormattedText text={question.answer} />
                 </p>
@@ -477,7 +535,7 @@ export function QuizCard({
           </div>
 
           {/* Desktop Card Footer (hidden on mobile) */}
-          <div className="hidden sm:flex flex-col gap-2 pt-4 border-t border-neutral-100 dark:border-neutral-800">
+          <div className="hidden sm:flex flex-col gap-1.5 pt-2 border-t border-neutral-100 dark:border-neutral-800 shrink-0">
             {showAnswer ? (
               <>
                 <div className="flex items-center justify-between">
@@ -488,7 +546,7 @@ export function QuizCard({
                       e.stopPropagation();
                       handleAnswer(true);
                     }}
-                    className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-400 font-bold text-xl border border-emerald-200 dark:border-emerald-800 transition-colors shadow-2xs cursor-pointer active:scale-95"
+                    className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-400 font-bold text-lg border border-emerald-200 dark:border-emerald-800 transition-colors shadow-2xs cursor-pointer active:scale-95"
                     title="正解 (← / Oキー)"
                   >
                     O
@@ -501,7 +559,7 @@ export function QuizCard({
                       e.stopPropagation();
                       handleAnswer(false);
                     }}
-                    className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/60 text-red-700 dark:text-red-400 font-bold text-xl border border-red-200 dark:border-red-800 transition-colors shadow-2xs cursor-pointer active:scale-95"
+                    className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/60 text-red-700 dark:text-red-400 font-bold text-lg border border-red-200 dark:border-red-800 transition-colors shadow-2xs cursor-pointer active:scale-95"
                     title="不正解 (→ / Xキー)"
                   >
                     X
@@ -509,13 +567,77 @@ export function QuizCard({
                 </div>
               </>
             ) : (
-              <div className="w-full text-center text-xs text-neutral-400 dark:text-neutral-500">
+              <div className="w-full text-center text-xs text-neutral-400 dark:text-neutral-500 py-2">
                 画面をタップで解答を表示
               </div>
             )}
           </div>
+
+          {/* Card Bottom: Left-bottom = 報告, Right-bottom = グッド & バッド */}
+          <div className="flex items-center justify-between pt-2.5 mt-1 border-t border-neutral-100 dark:border-neutral-800 shrink-0">
+            {/* 左下: 報告ボタン */}
+            <button
+              id="card-report-button"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsReportOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+              title="問題の不備・誤りを報告"
+            >
+              <Flag className="w-3.5 h-3.5" />
+              <span>報告</span>
+            </button>
+
+            {/* 右下: グッドボタン & バッドボタン */}
+            <div className="flex items-center gap-1">
+              <button
+                id="card-good-button"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAssessment('good');
+                }}
+                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  currentAssessment === 'good'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 font-bold shadow-2xs'
+                    : 'text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-transparent'
+                }`}
+                title="良問 (good)"
+                aria-label="良問 (good)"
+              >
+                <ThumbsUp className={`w-3.5 h-3.5 ${currentAssessment === 'good' ? 'fill-current' : ''}`} />
+              </button>
+
+              <button
+                id="card-bad-button"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAssessment('bad');
+                }}
+                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  currentAssessment === 'bad'
+                    ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800 font-bold shadow-2xs'
+                    : 'text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-transparent'
+                }`}
+                title="悪問 (bad)"
+                aria-label="悪問 (bad)"
+              >
+                <ThumbsDown className={`w-3.5 h-3.5 ${currentAssessment === 'bad' ? 'fill-current' : ''}`} />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* Floating toast notification for good/bad assessment feedback */}
+      {toastMessage && (
+        <div className="fixed top-18 left-1/2 -translate-x-1/2 z-50 px-3.5 py-1.5 bg-neutral-900/90 dark:bg-neutral-100/90 text-white dark:text-neutral-900 text-xs font-medium rounded-full shadow-lg backdrop-blur-xs animate-fadeIn pointer-events-none">
+          {toastMessage}
+        </div>
+      )}
 
       {/* Mobile-specific bottom area */}
       <div className="sm:hidden fixed inset-x-0 bottom-0 z-40 px-6 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-gradient-to-t from-neutral-50 dark:from-neutral-950 via-neutral-50/95 dark:via-neutral-950/95 to-transparent pointer-events-none">
@@ -637,6 +759,14 @@ export function QuizCard({
           </div>
         </div>
       )}
+
+      {/* Question Report Modal */}
+      <QuestionReportModal
+        isOpen={isReportOpen}
+        onClose={() => setIsReportOpen(false)}
+        question={question}
+        categoryTitle={categoryTitle}
+      />
     </div>
   );
 }

@@ -665,16 +665,14 @@ export function QuestionListView({
                         </button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => toggleAnswer(q.id)}
-                          className="inline-flex items-center gap-1 py-1 px-2.5 rounded-md bg-neutral-50 hover:bg-neutral-100 dark:bg-neutral-800/60 dark:hover:bg-neutral-800 text-[11px] font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 border border-neutral-200 dark:border-neutral-700/60 transition-colors cursor-pointer"
-                        >
-                          <Eye className="w-3 h-3 text-neutral-400" />
-                          <span>解答を表示</span>
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleAnswer(q.id)}
+                        className="inline-flex items-center gap-1 py-1 px-2.5 rounded-md bg-neutral-50 hover:bg-neutral-100 dark:bg-neutral-800/60 dark:hover:bg-neutral-800 text-[11px] font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 border border-neutral-200 dark:border-neutral-700/60 transition-colors cursor-pointer"
+                      >
+                        <Eye className="w-3 h-3 text-neutral-400" />
+                        <span>解答を表示</span>
+                      </button>
                     )}
                   </div>
                 </div>
