@@ -12,7 +12,7 @@ export const NAMED_COLOR_CLASSES: Record<string, string> = {
 export interface ASTNode {
   type: 'text' | 'tag';
   text?: string;
-  tag?: string; // 'red' | 'blue' | 'green' | 'yellow' | 'cyan' | 'magenta' | 'color' | 'em'
+  tag?: string; // 'red' | 'blue' | 'green' | 'yellow' | 'cyan' | 'magenta' | 'color' | 'em' | 'br'
   value?: string; // for <color value="...">
   children?: ASTNode[];
 }
@@ -20,20 +20,13 @@ export interface ASTNode {
 /**
  * Regex matching supported tags:
  * Opening:
- *  - <red>, <blue>, <green>, <yellow>, <cyan>, <magenta>, <em>
+ *  - <red>, <blue>, <green>, <yellow>, <cyan>, <magenta>, <em>, <br>
  *  - <color value="#XXXXXX"> or <color value='#XXXXXX'> or <color value=#XXXXXX> or <color="#XXXXXX">
  * Closing:
- *  - </red>, </ red>, </   red  >
- *  - </blue>, </ blue>
- *  - </green>, </ green>
- *  - </yellow>, </ yellow>
- *  - </cyan>, </ cyan>
- *  - </magenta>, </ magenta>
- *  - </color>, </ color>
- *  - </em>, </ em>
+ *  - </red>, </blue>, </green>, </yellow>, </cyan>, </magenta>, </color>, </em>, </br>
  */
 const TAG_REGEX =
-  /<(\/?)\s*(red|blue|green|yellow|cyan|magenta|color|em)(?:\s+(?:value|color)?\s*=\s*(?:["']([^"']*)["']|([^\s>]+))|\s*=\s*(?:["']([^"']*)["']|([^\s>]+)))?\s*\/?>/gi;
+  /<(\/?)\s*(red|blue|green|yellow|cyan|magenta|color|em|br)(?:\s+(?:value|color)?\s*=\s*(?:["']([^"']*)["']|([^\s>]+))|\s*=\s*(?:["']([^"']*)["']|([^\s>]+))|[^>]*)?\s*\/?>/gi;
 
 /**
  * Parse input text with XML-like tags into a tree of ASTNode.
@@ -42,6 +35,12 @@ const TAG_REGEX =
 export function parseFormattedText(text: string): ASTNode[] {
   if (!text) return [];
 
+  // Normalize HTML-entity encoded tags if present (e.g. &lt;br&gt; or &lt;br/&gt;)
+  const normalizedText = text.replace(
+    /&lt;(\/?\s*(?:red|blue|green|yellow|cyan|magenta|color|em|br)\b[^&;]*)(?:&gt;|>)/gi,
+    '<$1>'
+  );
+
   const root: ASTNode = { type: 'tag', tag: 'root', children: [] };
   const stack: ASTNode[] = [root];
 
@@ -49,13 +48,13 @@ export function parseFormattedText(text: string): ASTNode[] {
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
-  while ((match = regex.exec(text)) !== null) {
+  while ((match = regex.exec(normalizedText)) !== null) {
     const matchIndex = match.index;
     const matchLength = match[0].length;
 
     // Push preceding plain text
     if (matchIndex > lastIndex) {
-      const textChunk = text.substring(lastIndex, matchIndex);
+      const textChunk = normalizedText.substring(lastIndex, matchIndex);
       const parent = stack[stack.length - 1];
       parent.children = parent.children || [];
       parent.children.push({ type: 'text', text: textChunk });
@@ -66,6 +65,27 @@ export function parseFormattedText(text: string): ASTNode[] {
     const isClosing = match[1] === '/';
     const tagName = match[2].toLowerCase();
     const rawValue = match[3] || match[4] || match[5] || match[6];
+
+    // Handle line break <br>, <br/>, </br>
+    if (tagName === 'br') {
+      const parent = stack[stack.length - 1];
+      parent.children = parent.children || [];
+      parent.children.push({
+        type: 'tag',
+        tag: 'br',
+      });
+      // If immediately followed by a newline (\r\n or \n), consume it to avoid double breaks from spreadsheet cell Alt+Enter
+      if (normalizedText.startsWith('\r\n', lastIndex)) {
+        lastIndex += 2;
+      } else if (
+        normalizedText.startsWith('\n', lastIndex) ||
+        normalizedText.startsWith('\r', lastIndex)
+      ) {
+        lastIndex += 1;
+      }
+      regex.lastIndex = lastIndex;
+      continue;
+    }
 
     if (isClosing) {
       // Find matching tag in stack backwards
@@ -109,8 +129,8 @@ export function parseFormattedText(text: string): ASTNode[] {
   }
 
   // Trailing plain text
-  if (lastIndex < text.length) {
-    const remainingText = text.substring(lastIndex);
+  if (lastIndex < normalizedText.length) {
+    const remainingText = normalizedText.substring(lastIndex);
     const parent = stack[stack.length - 1];
     parent.children = parent.children || [];
     parent.children.push({ type: 'text', text: remainingText });
@@ -138,8 +158,9 @@ export function renderASTNodes(
 
     if (node.type === 'text') {
       if (!node.text) return null;
-      if (node.text.includes('\n')) {
-        const lines = node.text.split('\n');
+      const normalized = node.text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      if (normalized.includes('\n')) {
+        const lines = normalized.split('\n');
         return (
           <React.Fragment key={key}>
             {lines.map((line, lIdx) => (
@@ -155,6 +176,10 @@ export function renderASTNodes(
     }
 
     if (node.type === 'tag') {
+      if (node.tag === 'br') {
+        return <br key={key} />;
+      }
+
       const childCtx: FormatRenderContext = { ...ctx };
       let spanClass = '';
       let spanStyle: React.CSSProperties | undefined = undefined;

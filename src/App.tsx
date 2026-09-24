@@ -18,6 +18,8 @@ import {
   incrementQuizShown,
   getQuizQuestionStatsMap,
   recordQuestionAnswer,
+  resetQuizStats,
+  clearAllLearningData,
 } from './utils/db';
 import { CategorySelect } from './components/CategorySelect';
 import { QuizCard } from './components/QuizCard';
@@ -129,6 +131,73 @@ export default function App() {
     const res = await fetchCategoriesWithLocked(ROOT_SPREADSHEET_CSV_URL);
     setCategories(res.visibleCategories);
     setLockedCategories(res.lockedCategories);
+  };
+
+  // Handle resetting learning data for a specific category
+  const handleResetCategoryData = async (quizId: string) => {
+    try {
+      await resetQuizStats(quizId);
+      // If currently inside the active quiz session for this category, reset memory state
+      if (selectedCategory && selectedCategory.id === quizId) {
+        const emptyMap = new Map<string, QuestionStats>();
+        statsMapRef.current = emptyMap;
+        setQuestionStatsMap(emptyMap);
+        setQuizShownCount(0);
+        shownCountRef.current = 0;
+        if (allQuestions.length > 0) {
+          if (quizMode === 'order') {
+            const sorted = sortQuestionsById(allQuestions);
+            setSortedQuestions(sorted);
+            orderIndexRef.current = 0;
+            setOrderIndex(0);
+            setCurrentQuestion(sorted[0]);
+            setIsReviewQuestion(false);
+          } else if (quizMode === 'incorrect_only') {
+            setIsClearedIncorrectMode(true);
+            setCurrentQuestion(null);
+          } else {
+            const selection = selectNextQuestion(allQuestions, emptyMap, 0);
+            setCurrentQuestion(selection.question);
+            setIsReviewQuestion(selection.isReview);
+          }
+          setShowAnswer(false);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to reset category learning data:', e);
+    }
+  };
+
+  // Handle clearing all learning data completely
+  const handleClearAllData = async () => {
+    try {
+      await clearAllLearningData();
+      const emptyMap = new Map<string, QuestionStats>();
+      statsMapRef.current = emptyMap;
+      setQuestionStatsMap(emptyMap);
+      setQuizShownCount(0);
+      shownCountRef.current = 0;
+      if (selectedCategory && allQuestions.length > 0) {
+        if (quizMode === 'order') {
+          const sorted = sortQuestionsById(allQuestions);
+          setSortedQuestions(sorted);
+          orderIndexRef.current = 0;
+          setOrderIndex(0);
+          setCurrentQuestion(sorted[0]);
+          setIsReviewQuestion(false);
+        } else if (quizMode === 'incorrect_only') {
+          setIsClearedIncorrectMode(true);
+          setCurrentQuestion(null);
+        } else {
+          const selection = selectNextQuestion(allQuestions, emptyMap, 0);
+          setCurrentQuestion(selection.question);
+          setIsReviewQuestion(selection.isReview);
+        }
+        setShowAnswer(false);
+      }
+    } catch (e) {
+      console.error('Failed to clear all learning data:', e);
+    }
   };
 
   // Handle selecting a category and initializing IndexedDB session with specified mode
@@ -335,6 +404,8 @@ export default function App() {
             onRefresh={loadCategories}
             onAddEncryptedCategory={handleAddEncryptedCategory}
             onRemoveCredential={handleRemoveCredential}
+            onResetCategoryData={handleResetCategoryData}
+            onClearAllData={handleClearAllData}
           />
         ) : isLoadingQuestions ? (
           /* Loading questions */
@@ -409,6 +480,7 @@ export default function App() {
             onShowAnswer={handleShowAnswer}
             onNext={handleNextQuestion}
             onBack={handleBackToCategories}
+            onResetCategoryData={() => handleResetCategoryData(selectedCategory.id)}
           />
         ) : null}
       </main>

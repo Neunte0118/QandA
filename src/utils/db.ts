@@ -181,3 +181,21 @@ export async function resetQuizStats(quizId: string): Promise<void> {
     transaction.onerror = () => reject(transaction.error);
   });
 }
+
+/**
+ * Clear all learning data completely (all quizStats and all questionStats)
+ */
+export async function clearAllLearningData(): Promise<void> {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['quizStats', 'questionStats'], 'readwrite');
+    const quizStore = transaction.objectStore('quizStats');
+    const questionStore = transaction.objectStore('questionStats');
+    quizStore.clear();
+    questionStore.clear();
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+}
+

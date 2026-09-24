@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { QuizQuestion, QuestionStats, QuizMode } from '../types';
-import { ArrowLeft, Check, X as XIcon } from 'lucide-react';
+import { ArrowLeft, Check, X as XIcon, Trash2, RefreshCw } from 'lucide-react';
 import { FormattedText } from './FormattedText';
 import { parseImportance } from '../utils/quizSelector';
 
@@ -19,6 +19,7 @@ interface QuizCardProps {
   onShowAnswer: () => void;
   onNext: (isCorrect: boolean) => void;
   onBack: () => void;
+  onResetCategoryData?: () => Promise<void>;
 }
 
 export function QuizCard({
@@ -36,6 +37,7 @@ export function QuizCard({
   onShowAnswer,
   onNext,
   onBack,
+  onResetCategoryData,
 }: QuizCardProps) {
   // Swipe drag state
   const [dragOffset, setDragOffset] = useState<number>(0);
@@ -43,6 +45,10 @@ export function QuizCard({
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const isHorizontalSwipe = useRef<boolean | null>(null);
   const hasSwipedRef = useRef<boolean>(false);
+
+  // Reset learning data modal state
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState<boolean>(false);
+  const [isResetting, setIsResetting] = useState<boolean>(false);
 
   // Transition & visual feedback states
   const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null);
@@ -257,7 +263,7 @@ export function QuizCard({
         </button>
 
         <div className="flex items-center gap-1.5 sm:gap-2 text-xs">
-          <span className="text-neutral-500 dark:text-neutral-400 truncate max-w-[120px] sm:max-w-none">
+          <span className="text-neutral-500 dark:text-neutral-400 truncate max-w-[100px] sm:max-w-none">
             {categoryTitle}
           </span>
           {quizMode === 'order' ? (
@@ -272,6 +278,19 @@ export function QuizCard({
             <span className="font-semibold text-neutral-700 dark:text-neutral-300 bg-neutral-200/70 dark:bg-neutral-800 px-2 py-0.5 rounded-full text-[11px] sm:text-xs">
               出題: {totalShown}
             </span>
+          )}
+
+          {onResetCategoryData && (
+            <button
+              id="quiz-reset-data-button"
+              type="button"
+              onClick={() => setIsResetConfirmOpen(true)}
+              className="p-1 text-neutral-400 hover:text-rose-600 dark:text-neutral-500 dark:hover:text-rose-400 hover:bg-neutral-200/60 dark:hover:bg-neutral-800 rounded-lg transition-colors cursor-pointer"
+              title="この単元の学習データをリセット"
+              aria-label="この単元の学習データをリセット"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
           )}
         </div>
       </div>
@@ -540,6 +559,69 @@ export function QuizCard({
           )}
         </div>
       </div>
+
+      {/* Reset Confirmation Modal */}
+      {isResetConfirmOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="quiz-reset-confirm-title"
+        >
+          <div className="w-full max-w-sm bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 sm:p-6 shadow-xl relative animate-scaleUp">
+            <div className="flex items-center gap-2.5 mb-2.5">
+              <span className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-4 h-4" />
+              </span>
+              <h3
+                id="quiz-reset-confirm-title"
+                className="text-base font-bold text-neutral-900 dark:text-neutral-100"
+              >
+                学習データのリセット
+              </h3>
+            </div>
+            <p className="text-xs text-neutral-600 dark:text-neutral-400 mb-5 leading-relaxed">
+              「{categoryTitle}」の学習データ（出題履歴・正答率）をリセットしますか？<br />
+              これまでの解答記録はすべて初期化されます。
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsResetConfirmOpen(false)}
+                disabled={isResetting}
+                className="px-3.5 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-xl transition-colors cursor-pointer"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (onResetCategoryData) {
+                    setIsResetting(true);
+                    try {
+                      await onResetCategoryData();
+                      setIsResetConfirmOpen(false);
+                    } catch (e) {
+                      console.error(e);
+                    } finally {
+                      setIsResetting(false);
+                    }
+                  }
+                }}
+                disabled={isResetting}
+                className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-xl transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                {isResetting ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                <span>リセット実行</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

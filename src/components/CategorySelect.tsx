@@ -32,6 +32,8 @@ interface CategorySelectProps {
     key: string
   ) => Promise<{ success: boolean; error?: string }>;
   onRemoveCredential: (category: QuizCategory) => void;
+  onResetCategoryData?: (quizId: string) => Promise<void>;
+  onClearAllData?: () => Promise<void>;
 }
 
 export function CategorySelect({
@@ -44,6 +46,8 @@ export function CategorySelect({
   onRefresh,
   onAddEncryptedCategory,
   onRemoveCredential,
+  onResetCategoryData,
+  onClearAllData,
 }: CategorySelectProps) {
   const [selectedTitle, setSelectedTitle] = useState<string | null>(null);
 
@@ -61,8 +65,15 @@ export function CategorySelect({
   const [modalError, setModalError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Delete Confirmation Modal state
+  // Delete Category Credential Confirmation Modal state
   const [categoryToDelete, setCategoryToDelete] = useState<QuizCategory | null>(null);
+
+  // Clear Learning Data Modal state
+  const [isClearDataModalOpen, setIsClearDataModalOpen] = useState<boolean>(false);
+  const [selectedTargetScope, setSelectedTargetScope] = useState<string>('all'); // 'all' or category.id
+  const [isClearingData, setIsClearingData] = useState<boolean>(false);
+  const [dataClearedNotice, setDataClearedNotice] = useState<string | null>(null);
+  const [confirmingSingleReset, setConfirmingSingleReset] = useState<boolean>(false);
 
   const handleChooseCategory = async (cat: QuizCategory) => {
     setSelectedTitle(cat.title);
@@ -144,6 +155,55 @@ export function CategorySelect({
     if (categoryToDelete) {
       onRemoveCredential(categoryToDelete);
       setCategoryToDelete(null);
+    }
+  };
+
+  // Execute clearing of learning data (scope: 'all' or specific category ID)
+  const handleExecuteClearData = async () => {
+    setIsClearingData(true);
+    setDataClearedNotice(null);
+    try {
+      if (selectedTargetScope === 'all') {
+        if (onClearAllData) {
+          await onClearAllData();
+        }
+        setDataClearedNotice('すべての学習データを削除しました。');
+      } else {
+        if (onResetCategoryData) {
+          await onResetCategoryData(selectedTargetScope);
+        }
+        const cat = categories.find((c) => c.id === selectedTargetScope);
+        setDataClearedNotice(`「${cat?.title || '指定の単元'}」の学習データを削除しました。`);
+      }
+      setTimeout(() => {
+        setIsClearDataModalOpen(false);
+        setDataClearedNotice(null);
+      }, 1200);
+    } catch (err) {
+      console.error('Failed to clear learning data:', err);
+    } finally {
+      setIsClearingData(false);
+    }
+  };
+
+  // Reset single category from inside Mode Select Modal
+  const handleResetCurrentCategoryData = async () => {
+    if (!categoryForModeSelect) return;
+    setIsClearingData(true);
+    try {
+      if (onResetCategoryData) {
+        await onResetCategoryData(categoryForModeSelect.id);
+      }
+      setIncorrectCount(0);
+      setConfirmingSingleReset(false);
+      setModeSelectWarning('学習データをリセットしました。');
+      setTimeout(() => {
+        setModeSelectWarning(null);
+      }, 2500);
+    } catch (err) {
+      console.error('Failed to reset single category data:', err);
+    } finally {
+      setIsClearingData(false);
     }
   };
 
@@ -286,16 +346,30 @@ export function CategorySelect({
           </div>
         )}
 
-        {/* Add Category Button */}
-        <div className="mt-3 sm:mt-4 pt-3 border-t border-neutral-100 dark:border-neutral-800">
+        {/* Action Buttons: Add Category & Clear Learning Data */}
+        <div className="mt-3 sm:mt-4 pt-3 border-t border-neutral-100 dark:border-neutral-800 flex items-center gap-2">
           <button
             id="add-encrypted-category-button"
             type="button"
             onClick={handleOpenModal}
-            className="w-full py-2.5 px-3 border border-dashed border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800/40 active:bg-neutral-100 rounded-xl flex items-center justify-center gap-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
+            className="flex-1 py-2.5 px-3 border border-dashed border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800/40 active:bg-neutral-100 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>追加</span>
+            <span>単元を追加</span>
+          </button>
+          <button
+            id="open-clear-data-modal-button"
+            type="button"
+            onClick={() => {
+              setSelectedTargetScope('all');
+              setDataClearedNotice(null);
+              setIsClearDataModalOpen(true);
+            }}
+            className="py-2.5 px-3 border border-neutral-200 dark:border-neutral-800 hover:border-rose-300 dark:hover:border-rose-900 hover:bg-rose-50/50 dark:hover:bg-rose-950/20 active:bg-rose-100/40 text-neutral-600 hover:text-rose-600 dark:text-neutral-400 dark:hover:text-rose-400 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold transition-colors cursor-pointer"
+            title="学習データ（履歴・正答率）を削除"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>学習データ削除</span>
           </button>
         </div>
       </div>
@@ -559,19 +633,200 @@ export function CategorySelect({
               </button>
             </div>
 
-            {/* Cancel Button */}
-            <div className="mt-4 pt-3 border-t border-neutral-100 dark:border-neutral-800 flex justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  setCategoryForModeSelect(null);
-                  setModeSelectWarning(null);
-                }}
-                className="px-3.5 py-1.5 text-xs font-semibold text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors cursor-pointer"
-              >
-                キャンセル
-              </button>
+            {/* Footer: Reset Category Data & Cancel / Confirm Reset */}
+            <div className="mt-4 pt-3 border-t border-neutral-100 dark:border-neutral-800">
+              {confirmingSingleReset ? (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 animate-fadeIn">
+                  <p className="text-xs text-rose-800 dark:text-rose-300 font-semibold mb-2">
+                    この単元の学習履歴（出題数・正答率）をリセットしますか？
+                  </p>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingSingleReset(false)}
+                      disabled={isClearingData}
+                      className="px-3 py-1.5 text-xs font-semibold text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200/60 dark:hover:bg-neutral-800 rounded-lg transition-colors cursor-pointer"
+                    >
+                      やめる
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetCurrentCategoryData}
+                      disabled={isClearingData}
+                      className="px-3 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors shadow-xs cursor-pointer flex items-center gap-1"
+                    >
+                      {isClearingData ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                      <span>リセット実行</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingSingleReset(true)}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-neutral-400 hover:text-rose-600 dark:text-neutral-500 dark:hover:text-rose-400 py-1 px-1.5 rounded transition-colors cursor-pointer"
+                    title="この単元の学習履歴を初期化"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>学習データをリセット</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCategoryForModeSelect(null);
+                      setModeSelectWarning(null);
+                      setConfirmingSingleReset(false);
+                    }}
+                    className="px-3.5 py-1.5 text-xs font-semibold text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors cursor-pointer"
+                  >
+                    閉じる
+                  </button>
+                </div>
+              )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Clear Learning Data (All or Specific Category) */}
+      {isClearDataModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="clear-data-title"
+        >
+          <div className="w-full max-w-sm bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 sm:p-6 shadow-xl relative animate-scaleUp">
+            {/* Close button */}
+            <button
+              type="button"
+              onClick={() => {
+                setIsClearDataModalOpen(false);
+                setDataClearedNotice(null);
+              }}
+              disabled={isClearingData}
+              className="absolute top-4 right-4 p-1.5 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors cursor-pointer"
+              aria-label="閉じる"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Header */}
+            <div className="flex items-center gap-2.5 mb-3">
+              <span className="w-9 h-9 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </span>
+              <div>
+                <h3
+                  id="clear-data-title"
+                  className="text-base font-bold text-neutral-900 dark:text-neutral-100"
+                >
+                  学習データの削除
+                </h3>
+                <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                  出題履歴・正答率の初期化
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-neutral-600 dark:text-neutral-400 mb-4 leading-relaxed">
+              この端末に記録された出題履歴や正答率データを削除します。<br />
+              （※スプレッドシートの問題データは消去されません）
+            </p>
+
+            {/* Success Feedback Notification */}
+            {dataClearedNotice && (
+              <div className="p-3 mb-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2 animate-fadeIn">
+                <span>✓</span>
+                <span>{dataClearedNotice}</span>
+              </div>
+            )}
+
+            {/* Scope Selection */}
+            {!dataClearedNotice && (
+              <div className="space-y-3 mb-5">
+                <label className="block text-[11px] font-bold text-neutral-700 dark:text-neutral-300 mb-1">
+                  削除する対象を選択
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2.5 p-3 rounded-xl border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800/40 cursor-pointer transition-colors">
+                    <input
+                      type="radio"
+                      name="clearScope"
+                      value="all"
+                      checked={selectedTargetScope === 'all'}
+                      onChange={(e) => setSelectedTargetScope(e.target.value)}
+                      className="accent-rose-600"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-neutral-900 dark:text-neutral-100">
+                        すべての単元の学習データを削除
+                      </div>
+                      <div className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-0.5">
+                        全体の出題履歴と正答率を完全に初期化します
+                      </div>
+                    </div>
+                  </label>
+
+                  {categories.length > 0 && (
+                    <div className="pt-1">
+                      <div className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400 mb-1.5">
+                        または特定の単元のみ選択:
+                      </div>
+                      <select
+                        value={selectedTargetScope === 'all' ? '' : selectedTargetScope}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            setSelectedTargetScope(e.target.value);
+                          }
+                        }}
+                        className="w-full text-xs p-2.5 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-rose-500"
+                      >
+                        <option value="">単元を選択してください...</option>
+                        {categories.map((cat) => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            {!dataClearedNotice && (
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-neutral-100 dark:border-neutral-800">
+                <button
+                  type="button"
+                  onClick={() => setIsClearDataModalOpen(false)}
+                  disabled={isClearingData}
+                  className="px-3.5 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-xl transition-colors cursor-pointer"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  id="confirm-execute-clear-button"
+                  onClick={handleExecuteClearData}
+                  disabled={isClearingData}
+                  className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-xl transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  {isClearingData ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {selectedTargetScope === 'all'
+                      ? '全データを削除'
+                      : '選択した単元を削除'}
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
