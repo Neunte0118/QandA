@@ -1,4 +1,5 @@
 import CryptoJS from 'crypto-js';
+import { QuizCategory, QuizQuestion } from '../types';
 
 const STORAGE_KEY = 'quiz_unlocked_encrypted_categories_v1';
 
@@ -177,4 +178,31 @@ export function removeCategoryCredential(target: RemoveCategoryTarget | string):
  */
 export function removeCredential(identifier: string): void {
   removeCategoryCredential(identifier);
+}
+
+/**
+ * Returns the target ID to send in Google Form submissions (assessments / reports).
+ * If the question has an encrypted ID (rawId starting with 'enc:' or isEncrypted),
+ * or if it belongs to an encrypted 一問一答 (QuizCategory), the encrypted ID is returned.
+ */
+export function getSubmissionTargetId(
+  question: QuizQuestion | null | undefined,
+  category?: QuizCategory | null
+): string {
+  if (!question) return '';
+  // 1. If the question itself has an encrypted rawId
+  if (question.rawId && isEncryptedValue(question.rawId)) {
+    return question.rawId;
+  }
+  // 2. If the category is an encrypted 一問一答
+  if (category?.isEncrypted) {
+    if (category.rawId) {
+      return category.rawId;
+    }
+    if (category.id) {
+      return category.id;
+    }
+  }
+  // 3. Fallback to question.rawId or question.id
+  return question.rawId || question.id;
 }

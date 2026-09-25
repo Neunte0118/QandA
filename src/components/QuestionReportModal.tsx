@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { QuizQuestion } from '../types';
+import { QuizQuestion, QuizCategory } from '../types';
 import { FormattedText } from './FormattedText';
+import { getSubmissionTargetId } from '../utils/crypto';
 import {
   X,
   Send,
@@ -15,6 +16,7 @@ export interface QuestionReportModalProps {
   isOpen: boolean;
   onClose: () => void;
   question: QuizQuestion | null;
+  category?: QuizCategory | null;
   categoryTitle?: string;
 }
 
@@ -38,6 +40,7 @@ export function QuestionReportModal({
   isOpen,
   onClose,
   question,
+  category,
   categoryTitle,
 }: QuestionReportModalProps) {
   const [reportText, setReportText] = useState<string>('');
@@ -57,8 +60,9 @@ export function QuestionReportModal({
   if (!isOpen || !question) return null;
 
   const getPrefilledUrl = () => {
+    const targetId = getSubmissionTargetId(question, category);
     const params = new URLSearchParams();
-    params.set(FORM_ENTRY_ID, question.id);
+    params.set(FORM_ENTRY_ID, targetId);
     if (reportText.trim()) {
       params.set(FORM_ENTRY_REPORT, reportText.trim());
     }
@@ -76,8 +80,9 @@ export function QuestionReportModal({
     setSubmitError(null);
 
     try {
+      const targetId = getSubmissionTargetId(question, category);
       const formData = new URLSearchParams();
-      formData.append(FORM_ENTRY_ID, question.id);
+      formData.append(FORM_ENTRY_ID, targetId);
       formData.append(FORM_ENTRY_REPORT, reportText.trim());
 
       // Include existing assessment if user already voted good/bad

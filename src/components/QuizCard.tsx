@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { QuizQuestion, QuestionStats, QuizMode } from '../types';
+import { QuizQuestion, QuestionStats, QuizMode, QuizCategory } from '../types';
 import {
   ArrowLeft,
   Check,
@@ -14,9 +14,11 @@ import {
 import { FormattedText } from './FormattedText';
 import { parseImportance } from '../utils/quizSelector';
 import { QuestionReportModal } from './QuestionReportModal';
+import { getSubmissionTargetId } from '../utils/crypto';
 
 interface QuizCardProps {
   question: QuizQuestion;
+  category?: QuizCategory | null;
   questionStats: QuestionStats | undefined;
   totalShown: number;
   totalQuestions: number;
@@ -61,6 +63,7 @@ const submitAssessmentToGoogleForm = (questionId: string, assessment: 'good' | '
 
 export function QuizCard({
   question,
+  category,
   questionStats,
   totalShown,
   totalQuestions,
@@ -119,6 +122,15 @@ export function QuizCard({
     setCurrentAssessment((prev) => {
       const next = prev === type ? null : type;
       pendingAssessmentRef.current = next;
+      try {
+        if (next) {
+          localStorage.setItem(`assessment_${question.id}`, next);
+        } else {
+          localStorage.removeItem(`assessment_${question.id}`);
+        }
+      } catch {
+        // Ignore localStorage error
+      }
       return next;
     });
   };
@@ -143,6 +155,13 @@ export function QuizCard({
   const handleAnswer = (isCorrect: boolean) => {
     if (isTransitioning) return;
     setIsTransitioning(true);
+
+    // Submit assessment to Google Form if changed and an assessment is currently selected
+    if (hasAssessmentChangedRef.current && pendingAssessmentRef.current) {
+      const targetId = getSubmissionTargetId(question, category);
+      submitAssessmentToGoogleForm(targetId, pendingAssessmentRef.current);
+      hasAssessmentChangedRef.current = false;
+    }
 
     const result = isCorrect ? 'correct' : 'incorrect';
     setFeedback(result);
@@ -445,7 +464,7 @@ export function QuizCard({
                 ? '#ef4444'
                 : undefined,
           }}
-          className={`relative z-10 w-full h-[380px] sm:h-[430px] bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-4 sm:p-6 flex flex-col justify-between shadow-xs select-none text-left touch-pan-y ${
+          className={`relative z-10 w-full h-[380px] sm:h-[430px] min-h-[380px] sm:min-h-[430px] max-h-[380px] sm:max-h-[430px] bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-4 sm:p-6 flex flex-col justify-between shadow-xs select-none text-left touch-pan-y ${
             !showAnswer
               ? 'cursor-pointer hover:border-neutral-300 dark:hover:border-neutral-700'
               : 'cursor-default'
@@ -597,7 +616,7 @@ export function QuizCard({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleAssessment('good');
+                  handleAssessmentToggle('good');
                 }}
                 className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                   currentAssessment === 'good'
@@ -615,7 +634,7 @@ export function QuizCard({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleAssessment('bad');
+                  handleAssessmentToggle('bad');
                 }}
                 className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                   currentAssessment === 'bad'
@@ -631,13 +650,6 @@ export function QuizCard({
           </div>
         </div>
       </div>
-
-      {/* Floating toast notification for good/bad assessment feedback */}
-      {toastMessage && (
-        <div className="fixed top-18 left-1/2 -translate-x-1/2 z-50 px-3.5 py-1.5 bg-neutral-900/90 dark:bg-neutral-100/90 text-white dark:text-neutral-900 text-xs font-medium rounded-full shadow-lg backdrop-blur-xs animate-fadeIn pointer-events-none">
-          {toastMessage}
-        </div>
-      )}
 
       {/* Mobile-specific bottom area */}
       <div className="sm:hidden fixed inset-x-0 bottom-0 z-40 px-6 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-gradient-to-t from-neutral-50 dark:from-neutral-950 via-neutral-50/95 dark:via-neutral-950/95 to-transparent pointer-events-none">
@@ -765,6 +777,7 @@ export function QuizCard({
         isOpen={isReportOpen}
         onClose={() => setIsReportOpen(false)}
         question={question}
+        category={category}
         categoryTitle={categoryTitle}
       />
     </div>

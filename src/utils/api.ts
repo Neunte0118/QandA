@@ -355,17 +355,20 @@ export async function fetchQuestions(
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      let id = row[iIdx]?.trim() || `q-${i}`;
+      const rawQuestionId = row[iIdx]?.trim() || `q-${i}`;
+      let id = rawQuestionId;
       let question = row[qIdx]?.trim();
       let answer = row[aIdx]?.trim();
       const importance = row[impIdx]?.trim() || '3';
+      const isEncryptedId = isEncryptedValue(rawQuestionId);
+      const isEncryptedQ = isEncryptedValue(question);
 
       if (!question || !answer) {
         continue;
       }
 
       // Decrypt ID if encrypted
-      if (isEncryptedValue(id) && decryptionKey) {
+      if (isEncryptedId && decryptionKey) {
         const decryptedId = decryptCryptoJS(id, decryptionKey);
         if (decryptedId) id = decryptedId;
       }
@@ -392,9 +395,11 @@ export async function fetchQuestions(
 
       questions.push({
         id,
+        rawId: rawQuestionId,
         question,
         answer,
         importance,
+        isEncrypted: isEncryptedId || isEncryptedQ,
       });
     }
 

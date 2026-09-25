@@ -549,6 +549,7 @@ export default function App() {
           /* Active Question Card */
           <QuizCard
             question={currentQuestion}
+            category={selectedCategory}
             questionStats={questionStatsMap.get(currentQuestion.id)}
             totalShown={quizShownCount}
             totalQuestions={allQuestions.length}

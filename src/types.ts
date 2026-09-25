@@ -12,9 +12,11 @@ export interface QuizCategory {
 
 export interface QuizQuestion {
   id: string; // questionId
+  rawId?: string; // encrypted ID or original ID before decryption
   question: string;
   answer: string;
   importance: string;
+  isEncrypted?: boolean;
 }
 
 export interface QuizStats {
