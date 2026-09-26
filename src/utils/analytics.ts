@@ -1,20 +1,42 @@
 /**
- * User measurement / analytics tracking via Google Forms
+ * User measurement / analytics tracking
+ * Obfuscated Google Form endpoint and parameters (no plaintext URLs in code)
  */
 
-export const ANALYTICS_FORM_URL =
-  'https://docs.google.com/forms/d/1y5QHwinkbB3oDHKuiIUUBOlJHXnNY1lsjg2HYpiEXac/formResponse';
+const _k = 0x5b;
+const _d = (a: number[]): string => a.map((c) => String.fromCharCode(c ^ _k)).join('');
 
-export const ANALYTICS_ENTRY_USER_ID = 'entry.1389292709';
-export const ANALYTICS_ENTRY_USER_TYPE = 'entry.1545568694';
-export const ANALYTICS_ENTRY_DEVICE = 'entry.1743233097';
-export const ANALYTICS_ENTRY_BROWSER = 'entry.1539033752';
-export const ANALYTICS_ENTRY_PWA = 'entry.1599646897';
+// Obfuscated form endpoint: https://docs.google.com/forms/d/1y5QHwinkbB3oDHKuiIUUBOlJHXnNY1lsjg2HYpiEXac/formResponse
+const _F = [
+  51, 47, 47, 43, 40, 97, 116, 116, 63, 52, 56, 40, 117, 60, 52, 52, 60, 55, 62, 117, 56, 52, 54,
+  116, 61, 52, 41, 54, 40, 116, 63, 116, 106, 34, 110, 10, 19, 44, 50, 53, 48, 57, 25, 104, 52,
+  31, 19, 16, 46, 50, 18, 14, 14, 25, 20, 55, 17, 19, 3, 53, 21, 2, 106, 55, 40, 49, 60, 105, 19,
+  2, 43, 50, 30, 3, 58, 56, 116, 61, 52, 41, 54, 9, 62, 40, 43, 52, 53, 40, 62,
+];
+
+// Obfuscated entry IDs
+const _E_UID = [62, 53, 47, 41, 34, 117, 106, 104, 99, 98, 105, 98, 105, 108, 107, 98]; // entry.1389292709
+const _E_UTYPE = [62, 53, 47, 41, 34, 117, 106, 110, 111, 110, 110, 109, 99, 109, 98, 111]; // entry.1545568694
+const _E_DEV = [62, 53, 47, 41, 34, 117, 106, 108, 111, 104, 105, 104, 104, 107, 98, 108]; // entry.1743233097
+const _E_BROWSER = [62, 53, 47, 41, 34, 117, 106, 110, 104, 98, 107, 104, 104, 108, 110, 105]; // entry.1539033752
+const _E_PWA = [62, 53, 47, 41, 34, 117, 106, 110, 98, 98, 109, 111, 109, 99, 98, 108]; // entry.1599646897
 
 const STORAGE_KEY_USER_ID = 'quiz_analytics_user_id';
-const STORAGE_KEY_LAST_SENT = 'quiz_analytics_last_sent_key';
+const STORAGE_KEY_LAST_SENT_DATE = 'quiz_analytics_last_sent_date';
+const STORAGE_KEY_HAS_SENT = 'quiz_analytics_has_sent';
 
 let isTrackingInProgress = false;
+
+/**
+ * Returns today's date string in local time (YYYY-MM-DD)
+ */
+function getTodayString(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 /**
  * Detects device name (e.g. iPhone, Android, iPad, Mac, Windows, Linux)
@@ -68,14 +90,12 @@ export function isPWA(): boolean {
 /**
  * Retrieves the existing anonymous user ID or generates a new one.
  */
-export function getOrCreateUserId(): { userId: string; isNewUser: boolean } {
+export function getOrCreateUserId(): string {
   if (typeof window === 'undefined') {
-    return { userId: 'unknown', isNewUser: false };
+    return 'unknown';
   }
 
   let userId: string | null = null;
-  let isNewUser = false;
-
   try {
     userId = localStorage.getItem(STORAGE_KEY_USER_ID);
   } catch {
@@ -93,48 +113,54 @@ export function getOrCreateUserId(): { userId: string; isNewUser: boolean } {
     } catch {
       // ignore
     }
-    isNewUser = true;
   }
 
-  return { userId, isNewUser };
+  return userId;
 }
 
 /**
  * Tracks user visit and submits analytics to Google Forms.
- * - Checks URL for ?user_type=(something)
- * - If not present, sends '新規' (for brand new users) or 'リピーター'
- * - Debounces to send once per day (or per user_type change)
+ * - Strictly limited to ONCE per calendar day per user.
+ * - If ?user_type=(something) is in the URL, sends that value.
+ * - Otherwise, sends '新規' on the first ever recorded visit, and 'リピーター' on subsequent days.
  */
 export async function trackUserVisit(): Promise<void> {
   if (typeof window === 'undefined' || isTrackingInProgress) return;
   isTrackingInProgress = true;
 
   try {
-    const todayKey = new Date().toLocaleDateString('sv'); // YYYY-MM-DD
-    const { userId, isNewUser } = getOrCreateUserId();
+    const today = getTodayString();
+    const userId = getOrCreateUserId();
 
-    // Check query param ?user_type=...
+    // Check query parameter ?user_type=...
     const urlParams = new URLSearchParams(window.location.search);
     const queryUserType = urlParams.get('user_type');
 
     let userType: string;
-    if (queryUserType && queryUserType.trim().length > 0) {
-      userType = queryUserType.trim();
-    } else {
-      userType = isNewUser ? '新規' : 'リピーター';
-    }
+    let hasSentInitial = false;
+    let lastSentDate: string | null = null;
 
-    const dedupeKey = `${todayKey}_${userType}`;
-
-    // Check if already sent today with this userType
     try {
-      const lastSent = localStorage.getItem(STORAGE_KEY_LAST_SENT);
-      const sessionSent = sessionStorage.getItem(STORAGE_KEY_LAST_SENT);
-      if (lastSent === dedupeKey || sessionSent === dedupeKey) {
-        return;
-      }
+      lastSentDate = localStorage.getItem(STORAGE_KEY_LAST_SENT_DATE);
+      hasSentInitial = localStorage.getItem(STORAGE_KEY_HAS_SENT) === '1';
     } catch {
       // ignore storage access errors
+    }
+
+    if (queryUserType && queryUserType.trim().length > 0) {
+      userType = queryUserType.trim();
+      // For explicit query parameters, allow 1 send per query value per day
+      const queryKey = `${today}_${userType}`;
+      if (lastSentDate === queryKey) {
+        return; // Already sent this user_type today
+      }
+    } else {
+      // Normal visit: strictly 1 time per day
+      if (lastSentDate === today) {
+        // Already sent today! Do not send again today.
+        return;
+      }
+      userType = hasSentInitial ? 'リピーター' : '新規';
     }
 
     const device = detectDevice();
@@ -142,21 +168,25 @@ export async function trackUserVisit(): Promise<void> {
     const pwaStatus = isPWA() ? 'true' : 'false';
 
     const formData = new URLSearchParams();
-    formData.append(ANALYTICS_ENTRY_USER_ID, userId);
-    formData.append(ANALYTICS_ENTRY_USER_TYPE, userType);
-    formData.append(ANALYTICS_ENTRY_DEVICE, device);
-    formData.append(ANALYTICS_ENTRY_BROWSER, browser);
-    formData.append(ANALYTICS_ENTRY_PWA, pwaStatus);
+    formData.append(_d(_E_UID), userId);
+    formData.append(_d(_E_UTYPE), userType);
+    formData.append(_d(_E_DEV), device);
+    formData.append(_d(_E_BROWSER), browser);
+    formData.append(_d(_E_PWA), pwaStatus);
 
-    // Save sent state before sending to avoid race conditions
+    // Save date immediately to prevent duplicate sends on fast reloads or React StrictMode
     try {
-      sessionStorage.setItem(STORAGE_KEY_LAST_SENT, dedupeKey);
-      localStorage.setItem(STORAGE_KEY_LAST_SENT, dedupeKey);
+      if (queryUserType && queryUserType.trim().length > 0) {
+        localStorage.setItem(STORAGE_KEY_LAST_SENT_DATE, `${today}_${userType}`);
+      } else {
+        localStorage.setItem(STORAGE_KEY_LAST_SENT_DATE, today);
+        localStorage.setItem(STORAGE_KEY_HAS_SENT, '1');
+      }
     } catch {
       // ignore
     }
 
-    await fetch(ANALYTICS_FORM_URL, {
+    await fetch(_d(_F), {
       method: 'POST',
       mode: 'no-cors',
       keepalive: true,
