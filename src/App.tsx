@@ -25,6 +25,7 @@ import { CategorySelect } from './components/CategorySelect';
 import { QuizCard } from './components/QuizCard';
 import { QuestionListView } from './components/QuestionListView';
 import { PWAInstallButton } from './components/PWAInstallButton';
+import { trackUserVisit } from './utils/analytics';
 
 export default function App() {
   // Category selection states
@@ -114,6 +115,7 @@ export default function App() {
 
   useEffect(() => {
     loadCategories();
+    trackUserVisit();
   }, [loadCategories]);
 
   // Handle adding an encrypted category with encrypted ID and decryption key
