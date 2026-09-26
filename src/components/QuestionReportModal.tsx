@@ -164,7 +164,7 @@ export function QuestionReportModal({
               報告を送信しました
             </h4>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              ご協力ありがとうございます。内容を確認して改善いたします。
+              ご協力ありがとうございます。内容を確認して改善します。
             </p>
           </div>
         ) : (
@@ -173,9 +173,6 @@ export function QuestionReportModal({
             <div className="p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700/60">
               <div className="flex items-center justify-between text-[10px] text-neutral-400 dark:text-neutral-500 mb-1">
                 <span>対象問題</span>
-                <span className="font-mono font-semibold text-neutral-600 dark:text-neutral-300">
-                  ID: {question.id} (自動入力)
-                </span>
               </div>
               <p className="text-neutral-800 dark:text-neutral-200 font-medium line-clamp-2 leading-relaxed">
                 <FormattedText text={question.question} />
@@ -186,9 +183,8 @@ export function QuestionReportModal({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-[11px] font-bold text-neutral-700 dark:text-neutral-300">
-                  報告内容（長文回答） <span className="text-rose-500">*</span>
+                  本文 <span className="text-rose-500">*</span>
                 </label>
-                <span className="text-[10px] text-neutral-400">entry.85167298</span>
               </div>
 
               {/* Quick Tags */}
@@ -208,7 +204,7 @@ export function QuestionReportModal({
               <textarea
                 value={reportText}
                 onChange={(e) => setReportText(e.target.value)}
-                placeholder="問題の誤り、解説の間違い、改善要望などを入力してください..."
+                placeholder="解答の間違い、問題文の提案などを入力..."
                 rows={4}
                 required
                 className="w-full p-2.5 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 text-xs focus:outline-hidden focus:ring-1 focus:ring-neutral-400"
@@ -237,22 +233,10 @@ export function QuestionReportModal({
                 ) : (
                   <>
                     <Send className="w-3.5 h-3.5" />
-                    <span>報告を送信する</span>
+                    <span>送信する</span>
                   </>
                 )}
               </button>
-
-              <div className="text-center">
-                <a
-                  href={getPrefilledUrl()}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:underline pt-0.5"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  <span>Googleフォームを直接開く</span>
-                </a>
-              </div>
             </div>
           </form>
         )}

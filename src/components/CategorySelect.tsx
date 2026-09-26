@@ -424,19 +424,6 @@ export function CategorySelect({
           </div>
         )}
 
-        {/* Hide Feedback Notification */}
-        {hideFeedback && (
-          <div className="p-2.5 mb-3 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 text-xs flex items-center justify-between animate-fadeIn">
-            <span>{hideFeedback}</span>
-            <button
-              type="button"
-              onClick={() => setShowHiddenSection(true)}
-              className="text-blue-600 dark:text-blue-400 font-semibold underline text-[11px] cursor-pointer"
-            >
-              非表示一覧を見る
-            </button>
-          </div>
-        )}
 
         {/* Loading state */}
         {isLoading ? (
