@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { QuizCategory, QuizMode } from '../types';
+import React, { useState, useMemo } from 'react';
+import { QuizCategory, QuizMode, QuizQuestion } from '../types';
 import { getQuizQuestionStatsMap } from '../utils/db';
+import { fetchQuestions } from '../utils/api';
 import {
   BookOpen,
   RefreshCw,
@@ -18,7 +19,12 @@ import {
   Shuffle,
   AlertTriangle,
   FileText,
+  Tag,
+  Check,
+  ChevronDown,
 } from 'lucide-react';
+
+const HIDDEN_CATEGORIES_STORAGE_KEY = 'quiz_hidden_category_ids_v1';
 
 interface CategorySelectProps {
   categories: QuizCategory[];
@@ -26,7 +32,12 @@ interface CategorySelectProps {
   error: string | null;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
-  onSelect: (category: QuizCategory, mode: QuizMode) => void;
+  onSelect: (
+    category: QuizCategory,
+    mode: QuizMode,
+    selectedTags?: string[],
+    tagFilterMode?: 'OR' | 'AND'
+  ) => void;
   onRefresh: () => void;
   onAddEncryptedCategory: (
     encryptedId: string,
@@ -35,7 +46,7 @@ interface CategorySelectProps {
   onRemoveCredential: (category: QuizCategory) => void;
   onResetCategoryData?: (quizId: string) => Promise<void>;
   onClearAllData?: () => Promise<void>;
-  onOpenQuestionList?: (category: QuizCategory) => void;
+  onOpenQuestionList?: (category: QuizCategory, selectedTags?: string[]) => void;
 }
 
 export function CategorySelect({
@@ -54,11 +65,62 @@ export function CategorySelect({
 }: CategorySelectProps) {
   const [selectedTitle, setSelectedTitle] = useState<string | null>(null);
 
+  // Hidden categories management
+  const [hiddenCategoryIds, setHiddenCategoryIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = localStorage.getItem(HIDDEN_CATEGORIES_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showHiddenSection, setShowHiddenSection] = useState<boolean>(false);
+  const [hideFeedback, setHideFeedback] = useState<string | null>(null);
+
+  const handleHideCategory = (catId: string, catTitle: string) => {
+    setHiddenCategoryIds((prev) => {
+      const next = prev.includes(catId) ? prev : [...prev, catId];
+      try {
+        localStorage.setItem(HIDDEN_CATEGORIES_STORAGE_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+    setHideFeedback(`「${catTitle}」を非表示にしました`);
+    setTimeout(() => setHideFeedback(null), 2500);
+  };
+
+  const handleUnhideCategory = (catId: string) => {
+    setHiddenCategoryIds((prev) => {
+      const next = prev.filter((id) => id !== catId);
+      try {
+        localStorage.setItem(HIDDEN_CATEGORIES_STORAGE_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const handleUnhideAllCategories = () => {
+    setHiddenCategoryIds([]);
+    try {
+      localStorage.removeItem(HIDDEN_CATEGORIES_STORAGE_KEY);
+    } catch {}
+  };
+
   // Mode Selection Modal state
   const [categoryForModeSelect, setCategoryForModeSelect] = useState<QuizCategory | null>(null);
   const [incorrectCount, setIncorrectCount] = useState<number | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState<boolean>(false);
+  const [isLoadingTags, setIsLoadingTags] = useState<boolean>(false);
   const [modeSelectWarning, setModeSelectWarning] = useState<string | null>(null);
+
+  // Tag selection for category
+  const [categoryQuestions, setCategoryQuestions] = useState<QuizQuestion[]>([]);
+  const [availableTags, setAvailableTags] = useState<{ tag: string; count: number }[]>([]);
+  const [groupedTags, setGroupedTags] = useState<{ group: string; tags: { tag: string; count: number }[] }[]>([]);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [tagFilterMode, setTagFilterMode] = useState<'OR' | 'AND'>('OR');
+  const [isTagsExpanded, setIsTagsExpanded] = useState<boolean>(false);
 
   // Add Category Modal state
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -83,10 +145,68 @@ export function CategorySelect({
     setCategoryForModeSelect(cat);
     setModeSelectWarning(null);
     setIsLoadingStats(true);
+    setIsLoadingTags(true);
     setIncorrectCount(null);
+    setSelectedTags([]);
+    setTagFilterMode('OR');
+    setIsTagsExpanded(false);
 
     try {
-      const statsMap = await getQuizQuestionStatsMap(cat.id);
+      const [statsMap, questionsResult] = await Promise.all([
+        getQuizQuestionStatsMap(cat.id),
+        fetchQuestions(cat.url, cat.decryptionKey, cat.id, cat.hash).catch(() => ({ questions: [] })),
+      ]);
+
+      const questions = questionsResult.questions || [];
+      setCategoryQuestions(questions);
+
+      // Extract tags grouped by 大分類 (category)
+      const groupMap = new Map<string, Map<string, number>>();
+      const groupOrder: string[] = [];
+
+      for (const q of questions) {
+        if (q.tagDetails && q.tagDetails.length > 0) {
+          for (const td of q.tagDetails) {
+            const group = td.category || 'その他';
+            if (!groupMap.has(group)) {
+              groupMap.set(group, new Map());
+              groupOrder.push(group);
+            }
+            const map = groupMap.get(group)!;
+            map.set(td.tag, (map.get(td.tag) || 0) + 1);
+          }
+        } else if (q.tags && q.tags.length > 0) {
+          for (const t of q.tags) {
+            let group = 'その他';
+            let tagName = t;
+            if (t.includes(':') || t.includes('：')) {
+              const parts = t.split(/[:：]/);
+              group = parts[0].trim();
+              tagName = parts.slice(1).join(':').trim();
+            }
+            if (!groupMap.has(group)) {
+              groupMap.set(group, new Map());
+              groupOrder.push(group);
+            }
+            const map = groupMap.get(group)!;
+            map.set(tagName, (map.get(tagName) || 0) + 1);
+          }
+        }
+      }
+
+      // Sort tags inside each 大分類 in ascending order (昇順ソート)
+      const sections: { group: string; tags: { tag: string; count: number }[] }[] = [];
+      for (const group of groupOrder) {
+        const tagCounts = groupMap.get(group)!;
+        const tags = Array.from(tagCounts.entries())
+          .map(([tag, count]) => ({ tag, count }))
+          .sort((a, b) => a.tag.localeCompare(b.tag, 'ja')); // 昇順ソート
+        sections.push({ group, tags });
+      }
+
+      setGroupedTags(sections);
+      setAvailableTags(sections.flatMap((s) => s.tags));
+
       let count = 0;
       for (const stat of statsMap.values()) {
         if (stat.answered > 0 && stat.correct / stat.answered < 0.9) {
@@ -96,13 +216,51 @@ export function CategorySelect({
       setIncorrectCount(count);
     } catch {
       setIncorrectCount(0);
+      setCategoryQuestions([]);
+      setAvailableTags([]);
+      setGroupedTags([]);
     } finally {
       setIsLoadingStats(false);
+      setIsLoadingTags(false);
     }
   };
 
+  // Questions matching active tag filter
+  const matchingQuestions = useMemo(() => {
+    if (!categoryQuestions || categoryQuestions.length === 0) return [];
+    if (selectedTags.length === 0) return categoryQuestions;
+    return categoryQuestions.filter((q) => {
+      const allQTags = new Set<string>();
+      if (q.tags) {
+        q.tags.forEach((t) => {
+          allQTags.add(t);
+          if (t.includes(':') || t.includes('：')) {
+            const parts = t.split(/[:：]/);
+            allQTags.add(parts.slice(1).join(':').trim());
+          }
+        });
+      }
+      if (q.tagDetails) {
+        q.tagDetails.forEach((td) => {
+          allQTags.add(td.tag);
+          allQTags.add(`${td.category}:${td.tag}`);
+        });
+      }
+      if (allQTags.size === 0) return false;
+
+      if (tagFilterMode === 'AND') {
+        return selectedTags.every((t) => allQTags.has(t));
+      }
+      return selectedTags.some((t) => allQTags.has(t));
+    });
+  }, [categoryQuestions, selectedTags, tagFilterMode]);
+
   const handleStartMode = (mode: QuizMode) => {
     if (!categoryForModeSelect) return;
+    if (selectedTags.length > 0 && matchingQuestions.length === 0) {
+      setModeSelectWarning('選択したタグに一致する問題がありません。タグを選び直してください。');
+      return;
+    }
     if (mode === 'incorrect_only' && incorrectCount === 0) {
       setModeSelectWarning('正答率90%未満の問題がありません。まずは「シャッフル」や「順番通り」で学習してください。');
       return;
@@ -110,7 +268,7 @@ export function CategorySelect({
     const cat = categoryForModeSelect;
     setCategoryForModeSelect(null);
     setModeSelectWarning(null);
-    onSelect(cat, mode);
+    onSelect(cat, mode, selectedTags, tagFilterMode);
   };
 
   const handleOpenModal = () => {
@@ -266,86 +424,173 @@ export function CategorySelect({
           </div>
         )}
 
+        {/* Hide Feedback Notification */}
+        {hideFeedback && (
+          <div className="p-2.5 mb-3 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 text-xs flex items-center justify-between animate-fadeIn">
+            <span>{hideFeedback}</span>
+            <button
+              type="button"
+              onClick={() => setShowHiddenSection(true)}
+              className="text-blue-600 dark:text-blue-400 font-semibold underline text-[11px] cursor-pointer"
+            >
+              非表示一覧を見る
+            </button>
+          </div>
+        )}
+
         {/* Loading state */}
         {isLoading ? (
           <div className="py-12 flex flex-col items-center justify-center text-neutral-400 dark:text-neutral-500 gap-2">
             <RefreshCw className="w-6 h-6 animate-spin text-neutral-500 dark:text-neutral-400" />
             <span className="text-xs font-medium">スプレッドシートから読み込み中...</span>
           </div>
-        ) : categories.length === 0 ? (
+        ) : categories.filter((c) => !hiddenCategoryIds.includes(c.id)).length === 0 ? (
           <div className="py-8 text-center text-neutral-500 dark:text-neutral-400 text-xs sm:text-sm">
-            表示できる公開単元がありません。
+            {categories.length > 0 && hiddenCategoryIds.length > 0
+              ? 'すべての単元が非表示になっています。'
+              : '表示できる公開単元がありません。'}
           </div>
         ) : (
           /* Categories List - Non-nested button structure */
           <div className="space-y-2 sm:space-y-2.5">
-            {categories.map((cat, idx) => {
-              const isSelected = selectedTitle === cat.title;
-              return (
-                <div
-                  key={`${cat.id}-${idx}`}
-                  className={`w-full rounded-xl border transition-all flex items-center justify-between ${
-                    isSelected
-                      ? 'border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-800/80 shadow-xs'
-                      : 'border-neutral-200 dark:border-neutral-800 hover:border-neutral-400 dark:hover:border-neutral-600 hover:bg-neutral-50/70 dark:hover:bg-neutral-800/50'
-                  }`}
-                >
-                  <button
-                    id={`category-item-${idx}`}
-                    type="button"
-                    onClick={() => {
-                      handleChooseCategory(cat);
-                    }}
-                    className="flex-1 min-w-0 text-left px-4 py-3.5 flex items-center gap-3 active:opacity-75 touch-manipulation cursor-pointer"
+            {categories
+              .filter((c) => !hiddenCategoryIds.includes(c.id))
+              .map((cat, idx) => {
+                const isSelected = selectedTitle === cat.title;
+                return (
+                  <div
+                    key={`${cat.id}-${idx}`}
+                    className={`w-full rounded-xl border transition-all flex items-center justify-between ${
+                      isSelected
+                        ? 'border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-800/80 shadow-xs'
+                        : 'border-neutral-200 dark:border-neutral-800 hover:border-neutral-400 dark:hover:border-neutral-600 hover:bg-neutral-50/70 dark:hover:bg-neutral-800/50'
+                    }`}
                   >
-                    <span
-                      className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
-                        cat.isEncrypted
-                          ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
-                          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
-                      }`}
-                    >
-                      {cat.isEncrypted ? (
-                        <Key className="w-4 h-4" />
-                      ) : (
-                        <BookOpen className="w-4 h-4" />
-                      )}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 truncate block">
-                        {cat.title}
-                      </span>
-                    </div>
-                  </button>
-
-                  <div className="flex items-center gap-1 pr-2.5 shrink-0">
-                    {cat.isEncrypted && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCategoryToDelete(cat);
-                        }}
-                        className="p-2 text-neutral-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
-                        title="削除"
-                        aria-label={`${cat.title}を削除`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
                     <button
+                      id={`category-item-${idx}`}
                       type="button"
                       onClick={() => {
                         handleChooseCategory(cat);
                       }}
-                      className="p-1.5 text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 font-semibold transition-colors cursor-pointer"
+                      className="flex-1 min-w-0 text-left px-4 py-3.5 flex items-center gap-3 active:opacity-75 touch-manipulation cursor-pointer"
                     >
-                      開始 &rarr;
+                      <span
+                        className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                          cat.isEncrypted
+                            ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+                            : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
+                        }`}
+                      >
+                        {cat.isEncrypted ? (
+                          <Key className="w-4 h-4" />
+                        ) : (
+                          <BookOpen className="w-4 h-4" />
+                        )}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 truncate block">
+                          {cat.title}
+                        </span>
+                      </div>
                     </button>
+
+                    <div className="flex items-center gap-1 pr-2.5 shrink-0">
+                      {/* Hide Category button */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleHideCategory(cat.id, cat.title);
+                        }}
+                        className="p-1.5 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors cursor-pointer"
+                        title="この単元を非表示にする"
+                        aria-label={`${cat.title}を非表示にする`}
+                      >
+                        <EyeOff className="w-4 h-4" />
+                      </button>
+
+                      {cat.isEncrypted && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCategoryToDelete(cat);
+                          }}
+                          className="p-1.5 text-neutral-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                          title="削除"
+                          aria-label={`${cat.title}を削除`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleChooseCategory(cat);
+                        }}
+                        className="p-1.5 text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 font-semibold transition-colors cursor-pointer"
+                      >
+                        開始 &rarr;
+                      </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+          </div>
+        )}
+
+        {/* Hidden Categories collapsible section */}
+        {categories.filter((c) => hiddenCategoryIds.includes(c.id)).length > 0 && (
+          <div className="mt-3 p-3 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700/60">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setShowHiddenSection((prev) => !prev)}
+                className="flex items-center gap-1.5 text-xs font-bold text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 cursor-pointer"
+              >
+                <EyeOff className="w-3.5 h-3.5 text-neutral-400" />
+                <span>
+                  非表示の単元 (
+                  {categories.filter((c) => hiddenCategoryIds.includes(c.id)).length}件)
+                </span>
+                <span className="text-[10px] text-neutral-400 underline ml-1">
+                  {showHiddenSection ? '閉じる' : '一覧を開く'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={handleUnhideAllCategories}
+                className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+              >
+                すべて再表示
+              </button>
+            </div>
+
+            {showHiddenSection && (
+              <div className="mt-2.5 space-y-1.5 pt-2 border-t border-neutral-200 dark:border-neutral-700/60">
+                {categories
+                  .filter((c) => hiddenCategoryIds.includes(c.id))
+                  .map((cat) => (
+                    <div
+                      key={cat.id}
+                      className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-xs"
+                    >
+                      <span className="font-medium text-neutral-800 dark:text-neutral-200 truncate flex-1 pr-2">
+                        {cat.title}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleUnhideCategory(cat.id)}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 py-1 px-2 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer shrink-0"
+                        title="再表示する"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>再表示</span>
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -561,6 +806,151 @@ export function CategorySelect({
               </div>
             )}
 
+            {/* Tag Selection (Multi-select) */}
+            {isLoadingTags ? (
+              <div className="p-3 mb-3 rounded-xl bg-neutral-50 dark:bg-neutral-800/40 border border-neutral-200/80 dark:border-neutral-700/60 flex items-center justify-center gap-2 text-xs text-neutral-400">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <span>タグ情報を確認中...</span>
+              </div>
+            ) : groupedTags.length > 0 ? (
+              <div className="mb-3 rounded-xl bg-neutral-50 dark:bg-neutral-800/40 border border-neutral-200/80 dark:border-neutral-700/60 overflow-hidden">
+                {/* Collapsible Header */}
+                <button
+                  type="button"
+                  onClick={() => setIsTagsExpanded((prev) => !prev)}
+                  className="w-full px-3 py-2.5 flex items-center justify-between hover:bg-neutral-100/70 dark:hover:bg-neutral-800/80 transition-colors cursor-pointer text-left"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-indigo-500" />
+                    <span className="text-xs font-bold text-neutral-800 dark:text-neutral-200">
+                      タグ指定
+                    </span>
+                    {selectedTags.length > 0 && (
+                      <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800/60 px-1.5 py-0.2 rounded">
+                        {matchingQuestions.length}問 / 全{categoryQuestions.length}問
+                      </span>
+                    )}
+                  </div>
+
+                  <ChevronDown
+                    className={`w-4 h-4 text-neutral-400 transition-transform duration-200 ${
+                      isTagsExpanded ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+
+                {/* Collapsed Content */}
+                {isTagsExpanded && (
+                  <div className="px-3 pb-3 pt-1 border-t border-neutral-200/60 dark:border-neutral-700/50 space-y-2">
+                    <div className="flex items-center justify-between text-[10px] pt-1">
+                      <span className="text-neutral-400">
+                        {selectedTags.length > 0 ? `${selectedTags.length}件選択中` : ''}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {selectedTags.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTags([])}
+                            className="text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 underline cursor-pointer"
+                          >
+                            クリア
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTags(availableTags.map((t) => t.tag))}
+                            className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer font-medium"
+                          >
+                            全選択
+                          </button>
+                        )}
+                        {selectedTags.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setTagFilterMode((m) => (m === 'OR' ? 'AND' : 'OR'))}
+                            className="px-1.5 py-0.5 rounded bg-neutral-200 dark:bg-neutral-700 font-bold text-neutral-700 dark:text-neutral-200 cursor-pointer"
+                          >
+                            {tagFilterMode}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Grouped Tag Sections */}
+                    <div className="max-h-48 overflow-y-auto pr-1 space-y-2.5">
+                      {groupedTags.map(({ group, tags }) => {
+                        const allInGroupSelected =
+                          tags.length > 0 && tags.every((t) => selectedTags.includes(t.tag));
+                        return (
+                          <div key={group} className="space-y-1">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-bold text-neutral-700 dark:text-neutral-300 flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                                {group}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const groupTagNames = tags.map((t) => t.tag);
+                                  if (allInGroupSelected) {
+                                    setSelectedTags((prev) =>
+                                      prev.filter((t) => !groupTagNames.includes(t))
+                                    );
+                                  } else {
+                                    setSelectedTags((prev) => [
+                                      ...prev,
+                                      ...groupTagNames.filter((t) => !prev.includes(t)),
+                                    ]);
+                                  }
+                                }}
+                                className="text-[10px] text-neutral-400 hover:text-indigo-600 dark:hover:text-indigo-400 underline cursor-pointer"
+                              >
+                                {allInGroupSelected ? '解除' : '全選択'}
+                              </button>
+                            </div>
+
+                            <div className="flex flex-wrap gap-1.5">
+                              {tags.map(({ tag, count }) => {
+                                const isSelected = selectedTags.includes(tag);
+                                return (
+                                  <button
+                                    key={tag}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedTags((prev) =>
+                                        isSelected ? prev.filter((t) => t !== tag) : [...prev, tag]
+                                      );
+                                    }}
+                                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                                      isSelected
+                                        ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 shadow-2xs'
+                                        : 'bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500'
+                                    }`}
+                                  >
+                                    {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                                    <span>#{tag}</span>
+                                    <span
+                                      className={`text-[10px] px-1 py-0.2 rounded-full ${
+                                        isSelected
+                                          ? 'bg-white/20 text-white dark:bg-neutral-900/20 dark:text-neutral-900'
+                                          : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'
+                                      }`}
+                                    >
+                                      {count}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
+
             {/* Mode Option Buttons */}
             <div className="space-y-2.5">
               {/* 1. 順番通りに開始 */}
@@ -575,11 +965,18 @@ export function CategorySelect({
                     <ListOrdered className="w-5 h-5" />
                   </span>
                   <div>
-                    <div className="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-300 transition-colors">
-                      順番通りに開始
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-300 transition-colors">
+                        順番通りに開始
+                      </span>
+                      {selectedTags.length > 0 && (
+                        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                          {matchingQuestions.length}問
+                        </span>
+                      )}
                     </div>
                     <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
-                      IDの昇順（1, 2, 3...）に順番に出題
+                      IDの順番通りに出題
                     </div>
                   </div>
                 </div>
@@ -601,6 +998,11 @@ export function CategorySelect({
                       <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-indigo-700 dark:group-hover:text-indigo-300 transition-colors">
                         シャッフルして開始
                       </span>
+                      {selectedTags.length > 0 && (
+                        <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                          {matchingQuestions.length}問
+                        </span>
+                      )}
                       <span className="text-[9px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded border border-indigo-200/80 dark:border-indigo-800/60">
                         おすすめ
                       </span>
@@ -661,7 +1063,7 @@ export function CategorySelect({
                   onClick={() => {
                     const cat = categoryForModeSelect;
                     setCategoryForModeSelect(null);
-                    onOpenQuestionList(cat);
+                    onOpenQuestionList(cat, selectedTags.length > 0 ? selectedTags : undefined);
                   }}
                   className="w-full text-left p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 active:scale-[0.99] transition-all flex items-center justify-between group cursor-pointer"
                 >
@@ -674,6 +1076,11 @@ export function CategorySelect({
                         <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors">
                           一問一答一覧を見る
                         </span>
+                        {selectedTags.length > 0 && (
+                          <span className="text-[10px] font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800">
+                            {matchingQuestions.length}問
+                          </span>
+                        )}
                       </div>
                       <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
                         各問題の正答率・出題数・最終日時・重要度を確認
@@ -713,15 +1120,6 @@ export function CategorySelect({
                 </div>
               ) : (
                 <div className="flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={() => setConfirmingSingleReset(true)}
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-neutral-400 hover:text-rose-600 dark:text-neutral-500 dark:hover:text-rose-400 py-1 px-1.5 rounded transition-colors cursor-pointer"
-                    title="この単元の学習履歴を初期化"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>学習データをリセット</span>
-                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -775,15 +1173,11 @@ export function CategorySelect({
                 >
                   学習データの削除
                 </h3>
-                <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                  出題履歴・正答率の初期化
-                </p>
               </div>
             </div>
 
             <p className="text-xs text-neutral-600 dark:text-neutral-400 mb-4 leading-relaxed">
-              この端末に記録された出題履歴や正答率データを削除します。<br />
-              （※スプレッドシートの問題データは消去されません）
+              この端末に記録された出題履歴や正答率データを削除します。
             </p>
 
             {/* Success Feedback Notification */}
@@ -813,9 +1207,6 @@ export function CategorySelect({
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-bold text-neutral-900 dark:text-neutral-100">
                         すべての単元の学習データを削除
-                      </div>
-                      <div className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-0.5">
-                        全体の出題履歴と正答率を完全に初期化します
                       </div>
                     </div>
                   </label>

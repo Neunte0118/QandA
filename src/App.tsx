@@ -45,6 +45,7 @@ export default function App() {
 
   // Active quiz session states
   const [selectedCategory, setSelectedCategory] = useState<QuizCategory | null>(null);
+  const [activeTags, setActiveTags] = useState<string[]>([]);
   const [quizMode, setQuizMode] = useState<QuizMode>('shuffle');
   const [sortedQuestions, setSortedQuestions] = useState<QuizQuestion[]>([]);
   const [orderIndex, setOrderIndex] = useState<number>(0);
@@ -95,12 +96,12 @@ export default function App() {
   const statsMapRef = useRef<Map<string, QuestionStats>>(new Map());
   const shownCountRef = useRef<number>(0);
 
-  // Load categories on mount
-  const loadCategories = useCallback(async () => {
+  // Load categories on mount or refresh
+  const loadCategories = useCallback(async (forceRefresh: boolean = false) => {
     setIsLoadingCategories(true);
     setCategoriesError(null);
     try {
-      const res = await fetchCategoriesWithLocked(ROOT_SPREADSHEET_CSV_URL);
+      const res = await fetchCategoriesWithLocked(ROOT_SPREADSHEET_CSV_URL, forceRefresh);
       setCategories(res.visibleCategories);
       setLockedCategories(res.lockedCategories);
     } catch (err) {
@@ -217,7 +218,7 @@ export default function App() {
   };
 
   // Handle opening Question List View for a category
-  const handleOpenQuestionList = async (category: QuizCategory) => {
+  const handleOpenQuestionList = async (category: QuizCategory, filterTags?: string[]) => {
     setIsViewingQuestionList(true);
     setQuestionListCategory(category);
     setIsLoadingQuestionList(true);
@@ -232,9 +233,33 @@ export default function App() {
       } else {
         const { questions: loadedQuestions } = await fetchQuestions(
           category.url,
-          category.decryptionKey
+          category.decryptionKey,
+          category.id,
+          category.hash
         );
-        setQuestionListItems(loadedQuestions);
+        let items = loadedQuestions;
+        if (filterTags && filterTags.length > 0) {
+          items = loadedQuestions.filter((q) => {
+            const allQTags = new Set<string>();
+            if (q.tags) {
+              q.tags.forEach((t) => {
+                allQTags.add(t);
+                if (t.includes(':') || t.includes('：')) {
+                  const parts = t.split(/[:：]/);
+                  allQTags.add(parts.slice(1).join(':').trim());
+                }
+              });
+            }
+            if (q.tagDetails) {
+              q.tagDetails.forEach((td) => {
+                allQTags.add(td.tag);
+                allQTags.add(`${td.category}:${td.tag}`);
+              });
+            }
+            return filterTags.some((t) => allQTags.has(t));
+          });
+        }
+        setQuestionListItems(items);
         const stats = await getQuizQuestionStatsMap(category.id);
         setQuestionListStatsMap(stats);
       }
@@ -262,8 +287,13 @@ export default function App() {
     setIsViewingQuestionList(false);
   };
 
-  // Handle selecting a category and initializing IndexedDB session with specified mode
-  const handleSelectCategory = async (category: QuizCategory, mode: QuizMode = 'shuffle') => {
+  // Handle selecting a category and initializing IndexedDB session with specified mode and optional tags
+  const handleSelectCategory = async (
+    category: QuizCategory,
+    mode: QuizMode = 'shuffle',
+    tagsToFilter: string[] = [],
+    tagFilterMode: 'OR' | 'AND' = 'OR'
+  ) => {
     setSelectedCategory(category);
     setQuizMode(mode);
     setIsClearedIncorrectMode(false);
@@ -271,11 +301,12 @@ export default function App() {
     setQuestionsError(null);
     setShowAnswer(false);
     setCurrentQuestion(null);
+    setActiveTags(tagsToFilter);
 
     try {
-      // 1. Fetch questions from URL, decrypting if key exists
+      // 1. Fetch questions from URL, decrypting if key exists, validating against category.hash
       const { questions: loadedQuestions, isUsingFallback: fallback } =
-        await fetchQuestions(category.url, category.decryptionKey);
+        await fetchQuestions(category.url, category.decryptionKey, category.id, category.hash);
 
       if (loadedQuestions.length === 0) {
         setQuestionsError('問題データが見つかりませんでした。');
@@ -283,7 +314,38 @@ export default function App() {
         return;
       }
 
-      setAllQuestions(loadedQuestions);
+      // Filter by tags if specified
+      let activeQuestions = loadedQuestions;
+      if (tagsToFilter.length > 0) {
+        const filtered = loadedQuestions.filter((q) => {
+          const allQTags = new Set<string>();
+          if (q.tags) {
+            q.tags.forEach((t) => {
+              allQTags.add(t);
+              if (t.includes(':') || t.includes('：')) {
+                const parts = t.split(/[:：]/);
+                allQTags.add(parts.slice(1).join(':').trim());
+              }
+            });
+          }
+          if (q.tagDetails) {
+            q.tagDetails.forEach((td) => {
+              allQTags.add(td.tag);
+              allQTags.add(`${td.category}:${td.tag}`);
+            });
+          }
+          if (allQTags.size === 0) return false;
+          if (tagFilterMode === 'AND') {
+            return tagsToFilter.every((t) => allQTags.has(t));
+          }
+          return tagsToFilter.some((t) => allQTags.has(t));
+        });
+        if (filtered.length > 0) {
+          activeQuestions = filtered;
+        }
+      }
+
+      setAllQuestions(activeQuestions);
       setIsUsingFallback(fallback);
 
       // 2. Load IndexedDB stats for this quiz
@@ -305,7 +367,7 @@ export default function App() {
 
       // 4. Select initial question according to chosen mode
       if (mode === 'order') {
-        const sorted = sortQuestionsById(loadedQuestions);
+        const sorted = sortQuestionsById(activeQuestions);
         setSortedQuestions(sorted);
         orderIndexRef.current = 0;
         setOrderIndex(0);
@@ -315,7 +377,7 @@ export default function App() {
         setIsReviewQuestion(isAnswered);
         setShowAnswer(false);
       } else if (mode === 'incorrect_only') {
-        const incorrectList = getIncorrectQuestions(loadedQuestions, savedQuestionStatsMap);
+        const incorrectList = getIncorrectQuestions(activeQuestions, savedQuestionStatsMap);
         if (incorrectList.length === 0) {
           setIsClearedIncorrectMode(true);
           setCurrentQuestion(null);
@@ -329,7 +391,7 @@ export default function App() {
       } else {
         // mode === 'shuffle'
         const selection = selectNextQuestion(
-          loadedQuestions,
+          activeQuestions,
           savedQuestionStatsMap,
           newShown
         );
@@ -482,7 +544,7 @@ export default function App() {
             isDarkMode={isDarkMode}
             onToggleDarkMode={handleToggleDarkMode}
             onSelect={handleSelectCategory}
-            onRefresh={loadCategories}
+            onRefresh={() => loadCategories(true)}
             onAddEncryptedCategory={handleAddEncryptedCategory}
             onRemoveCredential={handleRemoveCredential}
             onResetCategoryData={handleResetCategoryData}

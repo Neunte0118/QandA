@@ -1,3 +1,5 @@
+import { QuizQuestion } from '../types';
+
 export interface QuizStats {
   quizId: string;
   shown: number;
@@ -11,8 +13,21 @@ export interface QuestionStats {
   lastShown: number; // timestamp
 }
 
+export interface CachedCSVEntry {
+  url: string;
+  csvText: string;
+  timestamp: number;
+}
+
+export interface CachedQuestionsEntry {
+  key: string;
+  questions: QuizQuestion[];
+  hash?: string;
+  timestamp: number;
+}
+
 const DB_NAME = 'QuizDatabase';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -34,6 +49,16 @@ export function getDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('questionStats')) {
         db.createObjectStore('questionStats', { keyPath: ['quizId', 'questionId'] });
       }
+
+      // 3. csvCache store (key: url)
+      if (!db.objectStoreNames.contains('csvCache')) {
+        db.createObjectStore('csvCache', { keyPath: 'url' });
+      }
+
+      // 4. questionsCache store (key: key)
+      if (!db.objectStoreNames.contains('questionsCache')) {
+        db.createObjectStore('questionsCache', { keyPath: 'key' });
+      }
     };
 
     request.onsuccess = () => {
@@ -46,6 +71,165 @@ export function getDB(): Promise<IDBDatabase> {
   });
 
   return dbPromise;
+}
+
+const LS_CSV_PREFIX = 'quiz_csv_cache_';
+const LS_QUESTIONS_PREFIX = 'quiz_questions_cache_';
+
+/**
+ * Get cached CSV text by URL (IndexedDB with localStorage fallback)
+ */
+export async function getCachedCSV(url: string): Promise<string | null> {
+  try {
+    const db = await getDB();
+    const result = await new Promise<CachedCSVEntry | undefined>((resolve) => {
+      try {
+        const tx = db.transaction('csvCache', 'readonly');
+        const store = tx.objectStore('csvCache');
+        const req = store.get(url);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(undefined);
+      } catch {
+        resolve(undefined);
+      }
+    });
+
+    if (result && result.csvText) {
+      return result.csvText;
+    }
+  } catch {}
+
+  // Fallback to localStorage
+  try {
+    const lsItem = localStorage.getItem(LS_CSV_PREFIX + url);
+    if (lsItem) {
+      const parsed = JSON.parse(lsItem);
+      return parsed.csvText || null;
+    }
+  } catch {}
+
+  return null;
+}
+
+/**
+ * Cache CSV text by URL
+ */
+export async function setCachedCSV(url: string, csvText: string): Promise<void> {
+  const entry: CachedCSVEntry = {
+    url,
+    csvText,
+    timestamp: Date.now(),
+  };
+
+  try {
+    const db = await getDB();
+    await new Promise<void>((resolve) => {
+      try {
+        const tx = db.transaction('csvCache', 'readwrite');
+        const store = tx.objectStore('csvCache');
+        const req = store.put(entry);
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+      } catch {
+        resolve();
+      }
+    });
+  } catch {}
+
+  // Also save to localStorage
+  try {
+    localStorage.setItem(LS_CSV_PREFIX + url, JSON.stringify(entry));
+  } catch {}
+}
+
+/**
+ * Get cached questions and tags by cache key, optionally validating against expected hash
+ */
+export async function getCachedQuestions(
+  key: string,
+  expectedHash?: string
+): Promise<QuizQuestion[] | null> {
+  try {
+    const db = await getDB();
+    const result = await new Promise<CachedQuestionsEntry | undefined>((resolve) => {
+      try {
+        const tx = db.transaction('questionsCache', 'readonly');
+        const store = tx.objectStore('questionsCache');
+        const req = store.get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(undefined);
+      } catch {
+        resolve(undefined);
+      }
+    });
+
+    if (result && result.questions && result.questions.length > 0) {
+      if (expectedHash !== undefined && expectedHash !== '') {
+        // Compare hash: if matching, cache is valid!
+        if (result.hash === expectedHash) {
+          return result.questions;
+        }
+        // Hash changed: cache is stale, return null to force re-fetch
+        return null;
+      }
+      return result.questions;
+    }
+  } catch {}
+
+  // Fallback to localStorage
+  try {
+    const lsItem = localStorage.getItem(LS_QUESTIONS_PREFIX + key);
+    if (lsItem) {
+      const parsed = JSON.parse(lsItem) as CachedQuestionsEntry;
+      if (parsed && parsed.questions && parsed.questions.length > 0) {
+        if (expectedHash !== undefined && expectedHash !== '') {
+          if (parsed.hash === expectedHash) {
+            return parsed.questions;
+          }
+          return null;
+        }
+        return parsed.questions;
+      }
+    }
+  } catch {}
+
+  return null;
+}
+
+/**
+ * Cache parsed questions and tags by cache key with optional hash
+ */
+export async function setCachedQuestions(
+  key: string,
+  questions: QuizQuestion[],
+  hash?: string
+): Promise<void> {
+  const entry: CachedQuestionsEntry = {
+    key,
+    questions,
+    hash,
+    timestamp: Date.now(),
+  };
+
+  try {
+    const db = await getDB();
+    await new Promise<void>((resolve) => {
+      try {
+        const tx = db.transaction('questionsCache', 'readwrite');
+        const store = tx.objectStore('questionsCache');
+        const req = store.put(entry);
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+      } catch {
+        resolve();
+      }
+    });
+  } catch {}
+
+  // Also save to localStorage
+  try {
+    localStorage.setItem(LS_QUESTIONS_PREFIX + key, JSON.stringify(entry));
+  } catch {}
 }
 
 /**

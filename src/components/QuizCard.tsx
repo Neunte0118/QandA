@@ -15,6 +15,7 @@ import { FormattedText } from './FormattedText';
 import { parseImportance } from '../utils/quizSelector';
 import { QuestionReportModal } from './QuestionReportModal';
 import { getSubmissionTargetId } from '../utils/crypto';
+import { getDisplayTags } from '../utils/api';
 
 interface QuizCardProps {
   question: QuizQuestion;
@@ -481,14 +482,15 @@ export function QuizCard({
               : 'タップで解答を表示'
           }
         >
-          {/* Card Header: Mode badge on left, importance on top-right */}
-          <div className="flex items-center justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
-            <div className="flex items-center gap-1.5">
-              {quizMode === 'order' && (
-                <span className="text-[10px] sm:text-[11px] font-mono font-semibold text-neutral-600 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded">
-                  ID: {question.id}
-                </span>
-              )}
+          {/* Card Header: Mode badge and ID on left, importance on top-right */}
+          <div className="flex items-center justify-between pb-2.5 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span
+                className="text-[10px] sm:text-[11px] font-mono font-semibold text-neutral-600 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded truncate max-w-[210px]"
+                title={`ID: ${question.id}`}
+              >
+                ID: {question.id}
+              </span>
               {quizMode === 'incorrect_only' && (
                 <span className="text-[10px] sm:text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 px-2 py-0.5 rounded">
                   苦手特訓 {accuracyPercent !== null ? `(${accuracyPercent}%)` : ''}
@@ -515,8 +517,55 @@ export function QuizCard({
           <div className="flex-1 min-h-0 overflow-y-auto py-3 sm:py-4 flex flex-col justify-start gap-3 sm:gap-4">
             {/* Question Text */}
             <div>
-              <div className="text-[10px] sm:text-[11px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1">
-                問題
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-[10px] sm:text-[11px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">
+                  問題
+                </div>
+                {/* Question Tags: deduplicated, single-line, truncated with '...' if too many */}
+                {(() => {
+                  const displayTags = getDisplayTags(question.tags);
+                  if (displayTags.length === 0) return null;
+
+                  // Limit tags to avoid wrapping to two lines: up to 2 on mobile, up to 3 on desktop
+                  const maxTagsMobile = 2;
+                  const maxTagsDesktop = 3;
+                  const hasMoreMobile = displayTags.length > maxTagsMobile;
+                  const hasMoreDesktop = displayTags.length > maxTagsDesktop;
+
+                  return (
+                    <div
+                      className="flex items-center gap-1 flex-nowrap overflow-hidden max-w-[70%] sm:max-w-[78%] justify-end shrink min-w-0"
+                      title={displayTags.map((t) => `#${t}`).join(' ')}
+                    >
+                      {displayTags.slice(0, maxTagsDesktop).map((t, idx) => (
+                        <span
+                          key={t}
+                          className={`text-[10px] font-medium bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 px-1.5 py-0.2 rounded truncate max-w-[85px] sm:max-w-[120px] shrink-0 ${
+                            idx >= maxTagsMobile ? 'hidden sm:inline-block' : 'inline-block'
+                          }`}
+                        >
+                          #{t}
+                        </span>
+                      ))}
+
+                      {/* Truncation indicator '...' if too many tags */}
+                      {(hasMoreMobile || hasMoreDesktop) && (
+                        <span
+                          className={`text-[10px] font-medium bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 px-1.5 py-0.2 rounded shrink-0 cursor-default select-none ${
+                            hasMoreDesktop
+                              ? 'inline-block'
+                              : hasMoreMobile
+                              ? 'inline-block sm:hidden'
+                              : 'hidden'
+                          }`}
+                          title={`その他のタグ: ${displayTags.slice(hasMoreDesktop ? maxTagsDesktop : maxTagsMobile).map((t) => `#${t}`).join(' ')}`}
+                        >
+                          ...
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
               <p
                 id="question-text"

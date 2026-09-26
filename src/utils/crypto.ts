@@ -203,6 +203,6 @@ export function getSubmissionTargetId(
       return category.id;
     }
   }
-  // 3. Fallback to question.rawId or question.id
-  return question.rawId || question.id;
+  // 3. Fallback to question.id ({title_id}-{question_id}) or question.rawId
+  return question.id || question.rawId || '';
 }

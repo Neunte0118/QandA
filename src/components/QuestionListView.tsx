@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { QuizCategory, QuizQuestion, QuestionStats, QuizMode } from '../types';
 import FormattedText from './FormattedText';
+import { getDisplayTags } from '../utils/api';
 import {
   ArrowLeft,
   Search,
@@ -45,19 +46,18 @@ const INITIAL_PAGE_SIZE = 25;
 const PAGE_INCREMENT = 25;
 
 /**
- * Format timestamp into YYYY/MM/DD HH:mm:ss
+ * Format timestamp into YYYY/MM/DD HH:mm
  */
 function formatLastAnswered(timestamp?: number): string {
-  if (!timestamp || timestamp <= 0) return '未回答';
+  if (!timestamp || timestamp <= 0) return '';
   const d = new Date(timestamp);
-  if (isNaN(d.getTime())) return '未回答';
+  if (isNaN(d.getTime())) return '';
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   const hh = String(d.getHours()).padStart(2, '0');
   const min = String(d.getMinutes()).padStart(2, '0');
-  const ss = String(d.getSeconds()).padStart(2, '0');
-  return `${yyyy}/${mm}/${dd} ${hh}:${min}:${ss}`;
+  return `${yyyy}/${mm}/${dd} ${hh}:${min}`;
 }
 
 /**
@@ -86,6 +86,7 @@ export function QuestionListView({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
   const [importanceFilter, setImportanceFilter] = useState<string>('all');
+  const [tagFilter, setTagFilter] = useState<string>('all');
   const [sortOption, setSortOption] = useState<SortOption>('id');
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
   const [isAllAnswersVisible, setIsAllAnswersVisible] = useState(false);
@@ -170,6 +171,49 @@ export function QuestionListView({
     return Array.from(set).sort((a, b) => parseImportance(b) - parseImportance(a));
   }, [questions]);
 
+  // Grouped unique tags in questions by 大分類 (with tags sorted ascending)
+  const groupedAvailableTags = useMemo(() => {
+    const groupMap = new Map<string, Set<string>>();
+    const groupOrder: string[] = [];
+
+    questions.forEach((q) => {
+      if (q.tagDetails && q.tagDetails.length > 0) {
+        q.tagDetails.forEach((td) => {
+          const group = td.category || 'その他';
+          if (!groupMap.has(group)) {
+            groupMap.set(group, new Set());
+            groupOrder.push(group);
+          }
+          groupMap.get(group)!.add(td.tag);
+        });
+      } else if (q.tags && q.tags.length > 0) {
+        q.tags.forEach((t) => {
+          let group = 'その他';
+          let tagName = t;
+          if (t.includes(':') || t.includes('：')) {
+            const parts = t.split(/[:：]/);
+            group = parts[0].trim();
+            tagName = parts.slice(1).join(':').trim();
+          }
+          if (!groupMap.has(group)) {
+            groupMap.set(group, new Set());
+            groupOrder.push(group);
+          }
+          groupMap.get(group)!.add(tagName);
+        });
+      }
+    });
+
+    return groupOrder.map((group) => ({
+      group,
+      tags: Array.from(groupMap.get(group)!).sort((a, b) => a.localeCompare(b, 'ja')),
+    }));
+  }, [questions]);
+
+  const totalTagCount = useMemo(() => {
+    return groupedAvailableTags.reduce((sum, g) => sum + g.tags.length, 0);
+  }, [groupedAvailableTags]);
+
   // Filtered and sorted questions
   const filteredQuestions = useMemo(() => {
     let result = [...questions];
@@ -181,7 +225,8 @@ export function QuestionListView({
         (item) =>
           item.question.toLowerCase().includes(qLower) ||
           item.answer.toLowerCase().includes(qLower) ||
-          item.id.toLowerCase().includes(qLower)
+          item.id.toLowerCase().includes(qLower) ||
+          (item.tags && item.tags.some((t) => t.toLowerCase().includes(qLower)))
       );
     }
 
@@ -206,6 +251,20 @@ export function QuestionListView({
     // Importance filter
     if (importanceFilter !== 'all') {
       result = result.filter((item) => item.importance?.trim() === importanceFilter);
+    }
+
+    // Tag filter
+    if (tagFilter !== 'all') {
+      result = result.filter((item) => {
+        if (item.tags && item.tags.includes(tagFilter)) return true;
+        if (
+          item.tagDetails &&
+          item.tagDetails.some((td) => td.tag === tagFilter || `${td.category}:${td.tag}` === tagFilter)
+        ) {
+          return true;
+        }
+        return false;
+      });
     }
 
     // Sorting
@@ -357,55 +416,34 @@ export function QuestionListView({
               </div>
             )}
           </div>
-
-          {/* Quick Quiz Start button */}
-          <button
-            type="button"
-            onClick={() => onStartQuiz(category, 'shuffle')}
-            className="inline-flex items-center gap-1.5 py-1 px-3 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-200 rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer shrink-0"
-          >
-            <Play className="w-3 h-3 fill-current" />
-            <span>クイズ開始</span>
-          </button>
         </div>
 
-        {/* Compact Summary Strip */}
-        <div className="mt-2 pt-2 border-t border-neutral-100 dark:border-neutral-800/80 flex flex-wrap items-center justify-between gap-1.5 text-[11px]">
-          <div className="flex flex-wrap items-center gap-2 font-medium">
+        {/* Compact Summary Strip without redundant badges */}
+        <div className="mt-2 pt-2 border-t border-neutral-100 dark:border-neutral-800/80 flex items-center justify-between text-[11px]">
+          <div className="flex items-center gap-2 font-medium">
             <span className="text-neutral-500 dark:text-neutral-400">
-              全 <strong className="text-neutral-900 dark:text-neutral-100">{summary.total}</strong> 問
-            </span>
-            <span className="text-neutral-300 dark:text-neutral-700">|</span>
-            <span className="text-neutral-500 dark:text-neutral-400">
-              学習済 <strong className="text-neutral-900 dark:text-neutral-100">{summary.answeredCount}</strong>問
-            </span>
-            <span className="text-neutral-300 dark:text-neutral-700">|</span>
-            <span className="text-neutral-500 dark:text-neutral-400">
-              平均正答率:{' '}
-              <strong
-                className={
-                  summary.overallAccuracy >= 90
-                    ? 'text-emerald-600 dark:text-emerald-400 font-bold'
-                    : summary.overallAccuracy >= 60
-                    ? 'text-amber-600 dark:text-amber-400 font-bold'
-                    : 'text-neutral-700 dark:text-neutral-300 font-bold'
-                }
-              >
-                {summary.answeredCount > 0 ? `${summary.overallAccuracy}%` : 'ー'}
-              </strong>
+              全 <strong className="text-neutral-900 dark:text-neutral-100">{summary.total}</strong>問
+              {summary.answeredCount > 0 && (
+                <span className="text-neutral-400 ml-1">
+                  (学習済 <strong className="text-neutral-800 dark:text-neutral-200">{summary.answeredCount}</strong>問)
+                </span>
+              )}
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5 text-[10px]">
-            <span className="px-1.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold">
-              習得 {summary.masteredCount}問
-            </span>
-            <span className="px-1.5 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-semibold">
-              要復習 {summary.incorrectCount}問
-            </span>
-            <span className="px-1.5 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 font-medium">
-              未回答 {summary.unansweredCount}問
-            </span>
+          <div className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+            正答率:{' '}
+            <strong
+              className={
+                summary.overallAccuracy >= 90
+                  ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                  : summary.overallAccuracy >= 60
+                  ? 'text-amber-600 dark:text-amber-400 font-bold'
+                  : 'text-neutral-700 dark:text-neutral-300 font-bold'
+              }
+            >
+              {summary.answeredCount > 0 ? `${summary.overallAccuracy}%` : 'ー'}
+            </strong>
           </div>
         </div>
       </div>
@@ -506,7 +544,30 @@ export function QuestionListView({
           </div>
 
           {/* Importance & Sort Dropdowns */}
-          <div className="flex items-center gap-2 text-[11px]">
+          {/* Selectors: Tags, Importance, Sort */}
+          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+            {totalTagCount > 0 && (
+              <div className="flex items-center gap-1">
+                <span className="text-neutral-400">タグ:</span>
+                <select
+                  value={tagFilter}
+                  onChange={(e) => setTagFilter(e.target.value)}
+                  className="bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-md px-1.5 py-0.5 text-neutral-800 dark:text-neutral-200 font-medium focus:outline-hidden"
+                >
+                  <option value="all">すべて ({totalTagCount})</option>
+                  {groupedAvailableTags.map(({ group, tags }) => (
+                    <optgroup key={group} label={`${group}`}>
+                      {tags.map((tag) => (
+                        <option key={`${group}-${tag}`} value={tag}>
+                          #{tag}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {availableImportances.length > 0 && (
               <div className="flex items-center gap-1">
                 <span className="text-neutral-400">重要度:</span>
@@ -577,104 +638,147 @@ export function QuestionListView({
                 key={q.id}
                 className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-2.5 sm:p-3 shadow-2xs hover:border-neutral-300 dark:hover:border-neutral-700 transition-colors"
               >
-                {/* Header row: Question number, importance, accuracy, stats & last answered */}
-                <div className="flex flex-wrap items-center justify-between gap-1.5 pb-1.5 border-b border-neutral-100 dark:border-neutral-800/60 text-[11px]">
-                  {/* Left: Question Number & Importance */}
-                  <div className="flex items-center gap-1.5">
-                    <span className="px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 font-bold text-[10px]">
+                {/* Header row: Question number, ID, Importance & Stats */}
+                <div className="flex items-center justify-between gap-1.5 pb-1.5 border-b border-neutral-100 dark:border-neutral-800/60 text-[11px]">
+                  {/* Left: Question Number, ID, Importance (only when present) */}
+                  <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                    <span className="px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 font-bold text-[10px] shrink-0">
                       問 {idx + 1}
                     </span>
 
-                    {/* 重要度 */}
                     <span
-                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200/60 dark:border-amber-900/40 text-[10px] font-bold"
-                      title={`重要度: ${q.importance || '未設定'}`}
+                      className="px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 font-mono font-semibold text-[10px] shrink-0 truncate max-w-[130px] sm:max-w-none"
+                      title={`ID: ${q.id}`}
                     >
-                      <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-500" />
-                      <span>重要度: {q.importance || impNumber || 'ー'}</span>
+                      ID: {q.id}
                     </span>
+
+                    {/* Show importance badge only if set */}
+                    {impNumber > 0 && (
+                      <span
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200/60 dark:border-amber-900/40 text-[10px] font-bold shrink-0"
+                        title={`重要度: ${q.importance || impNumber}`}
+                      >
+                        <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-500" />
+                        <span>{q.importance || impNumber}</span>
+                      </span>
+                    )}
                   </div>
 
-                  {/* Right: Accuracy, Correct/Answered Counts, Last Answered Datetime */}
-                  <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                    {/* 正答率 */}
-                    {accuracy !== null ? (
+                  {/* Right: Accuracy & Stats (concise single pill), Timestamp only if answered */}
+                  <div className="flex items-center gap-1.5 text-[10px] shrink-0">
+                    {answered > 0 && accuracy !== null ? (
                       <span
-                        className={`px-1.5 py-0.5 rounded-full font-bold border ${
+                        className={`px-1.5 py-0.5 rounded-md font-semibold border ${
                           accuracy >= 90
                             ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                             : accuracy >= 60
                             ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
                             : 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
                         }`}
+                        title={`正答: ${correct}回 / 出題: ${answered}回`}
                       >
-                        正答率: {accuracy}%
+                        正答率 {accuracy}% ({correct}/{answered})
                       </span>
                     ) : (
-                      <span className="px-1.5 py-0.5 rounded-full font-semibold bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 border border-neutral-200 dark:border-neutral-700">
-                        正答率: 未回答
+                      <span className="px-1.5 py-0.5 rounded-md font-medium bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
+                        未回答
                       </span>
                     )}
 
-                    {/* 正答数 / 出題数 */}
-                    <span className="px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 font-medium">
-                      正答: <strong className="font-bold">{correct}</strong> / 出題:{' '}
-                      <strong className="font-bold">{answered}</strong>回
-                    </span>
-
-                    {/* 最後に答えた日付時間 */}
-                    <span
-                      className="hidden sm:inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400 font-mono text-[10px]"
-                      title="最後に答えた日時"
-                    >
-                      <Clock className="w-2.5 h-2.5 text-neutral-400 shrink-0" />
-                      <span>{lastShownText}</span>
-                    </span>
+                    {/* Timestamp: only show if actually answered */}
+                    {lastShownText && (
+                      <span
+                        className="hidden sm:inline-flex items-center gap-1 text-neutral-400 dark:text-neutral-500 font-mono text-[10px]"
+                        title={`最後に回答した日時: ${lastShownText}`}
+                      >
+                        <Clock className="w-2.5 h-2.5 text-neutral-400 shrink-0" />
+                        <span>{lastShownText}</span>
+                      </span>
+                    )}
                   </div>
                 </div>
 
-                {/* Question & Answer Content: Compact and tight */}
+                {/* Question & Answer Content */}
                 <div className="mt-1.5 space-y-1.5">
                   {/* Question Text */}
                   <div className="text-xs sm:text-sm font-semibold text-neutral-900 dark:text-neutral-100 leading-snug break-words">
                     <FormattedText text={q.question} />
                   </div>
 
-                  {/* Mobile-only Last Answered line if space was tight */}
-                  <div className="sm:hidden flex items-center gap-1 text-[10px] text-neutral-400 dark:text-neutral-500 font-mono">
-                    <Clock className="w-2.5 h-2.5" />
-                    <span>最後に答えた日時: {lastShownText}</span>
-                  </div>
+                  {/* Question Tags on left, "解答を表示" on RIGHT (consistent with "隠す" button!) */}
+                  <div className="flex items-center justify-between gap-2 pt-0.5">
+                    {/* Left: Tags */}
+                    <div className="flex-1 min-w-0">
+                      {(() => {
+                        const displayTags = getDisplayTags(q.tags);
+                        if (displayTags.length === 0) return null;
+                        const maxTags = 3;
+                        const visibleTags = displayTags.slice(0, maxTags);
+                        const hasMore = displayTags.length > maxTags;
 
-                  {/* Answer Section: Compact Revealable */}
-                  <div className="pt-0.5">
-                    {isRevealed ? (
-                      <div className="p-2 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/25 border border-emerald-200/60 dark:border-emerald-900/40 text-xs sm:text-sm font-bold text-neutral-900 dark:text-neutral-100 flex items-start justify-between gap-2 animate-fadeIn">
-                        <div className="flex-1 leading-snug">
-                          <span className="inline-block text-[10px] font-extrabold uppercase text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/50 px-1 py-0.2 rounded mr-1.5">
-                            解答
-                          </span>
-                          <FormattedText text={q.answer} />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => toggleAnswer(q.id)}
-                          className="text-[10px] text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 px-1 py-0.5 rounded hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 shrink-0 transition-colors cursor-pointer"
-                        >
-                          隠す
-                        </button>
-                      </div>
-                    ) : (
+                        return (
+                          <div
+                            className="flex items-center gap-1 flex-nowrap overflow-hidden max-w-full"
+                            title={displayTags.map((t) => `#${t}`).join(' ')}
+                          >
+                            {visibleTags.map((t) => (
+                              <span
+                                key={t}
+                                className="text-[9px] px-1.5 py-0.2 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 font-medium truncate max-w-[100px] sm:max-w-[130px] shrink-0"
+                              >
+                                #{t}
+                              </span>
+                            ))}
+                            {hasMore && (
+                              <span
+                                className="text-[9px] px-1.5 py-0.2 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 font-medium shrink-0 cursor-default select-none"
+                                title={`その他のタグ: ${displayTags.slice(maxTags).map((t) => `#${t}`).join(' ')}`}
+                              >
+                                ...
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Right: "解答を表示" button (matching the right-aligned position of "隠す") */}
+                    {!isRevealed && (
                       <button
                         type="button"
                         onClick={() => toggleAnswer(q.id)}
-                        className="inline-flex items-center gap-1 py-1 px-2.5 rounded-md bg-neutral-50 hover:bg-neutral-100 dark:bg-neutral-800/60 dark:hover:bg-neutral-800 text-[11px] font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 border border-neutral-200 dark:border-neutral-700/60 transition-colors cursor-pointer"
+                        className="shrink-0 inline-flex items-center gap-1 py-1 px-2.5 rounded-md bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-[11px] font-semibold text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
+                        title="解答を表示"
                       >
-                        <Eye className="w-3 h-3 text-neutral-400" />
+                        <Eye className="w-3 h-3 text-neutral-500 dark:text-neutral-400" />
                         <span>解答を表示</span>
                       </button>
                     )}
                   </div>
+
+                  {/* Revealed Answer Box: "隠す" button is also on the RIGHT */}
+                  {isRevealed && (
+                    <div className="p-2 sm:p-2.5 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/25 border border-emerald-200/60 dark:border-emerald-900/40 text-xs sm:text-sm text-neutral-900 dark:text-neutral-100 flex items-start justify-between gap-2 animate-fadeIn">
+                      <div className="flex-1 leading-snug">
+                        <span className="inline-block text-[10px] font-extrabold uppercase text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/50 px-1 py-0.2 rounded mr-1.5 align-middle">
+                          解答
+                        </span>
+                        <span className="font-bold">
+                          <FormattedText text={q.answer} />
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleAnswer(q.id)}
+                        className="shrink-0 inline-flex items-center gap-1 text-[11px] text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 px-2 py-0.5 rounded hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 transition-colors cursor-pointer font-medium"
+                        title="解答を隠す"
+                      >
+                        <EyeOff className="w-3 h-3 text-neutral-400" />
+                        <span>隠す</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -687,11 +791,11 @@ export function QuestionListView({
                 {isLoadingMore ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-neutral-600 dark:text-neutral-300" />
-                    <span>スクロールを検知、追加読み込み中...</span>
+                    <span>読み込み中...</span>
                   </>
                 ) : (
                   <span>
-                    全 {filteredQuestions.length} 問中 {displayedQuestions.length} 問を表示中
+                    全 {filteredQuestions.length} 問中 {displayedQuestions.length} 問を表示
                   </span>
                 )}
               </div>
@@ -701,13 +805,13 @@ export function QuestionListView({
                 onClick={loadMore}
                 className="inline-flex items-center gap-1.5 py-1.5 px-3 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
               >
-                <span>さらに表示する (+{Math.min(PAGE_INCREMENT, filteredQuestions.length - displayedQuestions.length)}問)</span>
+                <span>さらに表示 (+{Math.min(PAGE_INCREMENT, filteredQuestions.length - displayedQuestions.length)}問)</span>
               </button>
             </div>
           ) : (
             filteredQuestions.length > INITIAL_PAGE_SIZE && (
               <div className="py-4 text-center text-xs text-neutral-400 dark:text-neutral-500">
-                すべての問題（全 {filteredQuestions.length} 問）を表示しました
+                全 {filteredQuestions.length} 問を表示しました
               </div>
             )
           )}
