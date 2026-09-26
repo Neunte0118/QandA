@@ -517,52 +517,28 @@ export function QuizCard({
           <div className="flex-1 min-h-0 overflow-y-auto py-3 sm:py-4 flex flex-col justify-start gap-3 sm:gap-4">
             {/* Question Text */}
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <div className="text-[10px] sm:text-[11px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">
+              <div className="flex items-start justify-between mb-1 gap-2">
+                <div className="text-[10px] sm:text-[11px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider shrink-0 pt-0.5">
                   問題
                 </div>
-                {/* Question Tags: deduplicated, single-line, truncated with '...' if too many */}
+                {/* Question Tags: all tags displayed */}
                 {(() => {
                   const displayTags = getDisplayTags(question.tags);
                   if (displayTags.length === 0) return null;
 
-                  // Limit tags to avoid wrapping to two lines: up to 2 on mobile, up to 3 on desktop
-                  const maxTagsMobile = 2;
-                  const maxTagsDesktop = 3;
-                  const hasMoreMobile = displayTags.length > maxTagsMobile;
-                  const hasMoreDesktop = displayTags.length > maxTagsDesktop;
-
                   return (
                     <div
-                      className="flex items-center gap-1 flex-nowrap overflow-hidden max-w-[70%] sm:max-w-[78%] justify-end shrink min-w-0"
+                      className="flex items-center gap-1 flex-wrap justify-end shrink min-w-0"
                       title={displayTags.map((t) => `#${t}`).join(' ')}
                     >
-                      {displayTags.slice(0, maxTagsDesktop).map((t, idx) => (
+                      {displayTags.map((t) => (
                         <span
                           key={t}
-                          className={`text-[10px] font-medium bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 px-1.5 py-0.2 rounded truncate max-w-[85px] sm:max-w-[120px] shrink-0 ${
-                            idx >= maxTagsMobile ? 'hidden sm:inline-block' : 'inline-block'
-                          }`}
+                          className="text-[10px] font-medium bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 px-1.5 py-0.2 rounded"
                         >
                           #{t}
                         </span>
                       ))}
-
-                      {/* Truncation indicator '...' if too many tags */}
-                      {(hasMoreMobile || hasMoreDesktop) && (
-                        <span
-                          className={`text-[10px] font-medium bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 px-1.5 py-0.2 rounded shrink-0 cursor-default select-none ${
-                            hasMoreDesktop
-                              ? 'inline-block'
-                              : hasMoreMobile
-                              ? 'inline-block sm:hidden'
-                              : 'hidden'
-                          }`}
-                          title={`その他のタグ: ${displayTags.slice(hasMoreDesktop ? maxTagsDesktop : maxTagsMobile).map((t) => `#${t}`).join(' ')}`}
-                        >
-                          ...
-                        </span>
-                      )}
                     </div>
                   );
                 })()}

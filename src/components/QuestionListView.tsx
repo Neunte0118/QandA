@@ -713,31 +713,20 @@ export function QuestionListView({
                       {(() => {
                         const displayTags = getDisplayTags(q.tags);
                         if (displayTags.length === 0) return null;
-                        const maxTags = 3;
-                        const visibleTags = displayTags.slice(0, maxTags);
-                        const hasMore = displayTags.length > maxTags;
 
                         return (
                           <div
-                            className="flex items-center gap-1 flex-nowrap overflow-hidden max-w-full"
+                            className="flex items-center gap-1 flex-wrap"
                             title={displayTags.map((t) => `#${t}`).join(' ')}
                           >
-                            {visibleTags.map((t) => (
+                            {displayTags.map((t) => (
                               <span
                                 key={t}
-                                className="text-[9px] px-1.5 py-0.2 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 font-medium truncate max-w-[100px] sm:max-w-[130px] shrink-0"
+                                className="text-[9px] px-1.5 py-0.2 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 font-medium"
                               >
                                 #{t}
                               </span>
                             ))}
-                            {hasMore && (
-                              <span
-                                className="text-[9px] px-1.5 py-0.2 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 font-medium shrink-0 cursor-default select-none"
-                                title={`その他のタグ: ${displayTags.slice(maxTags).map((t) => `#${t}`).join(' ')}`}
-                              >
-                                ...
-                              </span>
-                            )}
                           </div>
                         );
                       })()}
