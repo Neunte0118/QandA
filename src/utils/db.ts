@@ -1,4 +1,5 @@
 import { QuizQuestion } from '../types';
+import { clearOrderProgress, clearAllOrderProgress } from './orderProgress';
 
 export interface QuizStats {
   quizId: string;
@@ -342,6 +343,7 @@ export async function recordQuestionAnswer(
  * Reset stats for a quiz if needed
  */
 export async function resetQuizStats(quizId: string): Promise<void> {
+  clearOrderProgress(quizId);
   const db = await getDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(['quizStats', 'questionStats'], 'readwrite');
@@ -370,6 +372,7 @@ export async function resetQuizStats(quizId: string): Promise<void> {
  * Clear all learning data completely (all quizStats and all questionStats)
  */
 export async function clearAllLearningData(): Promise<void> {
+  clearAllOrderProgress();
   const db = await getDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(['quizStats', 'questionStats'], 'readwrite');

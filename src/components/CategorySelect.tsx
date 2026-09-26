@@ -1,7 +1,14 @@
 import React, { useState, useMemo } from 'react';
-import { QuizCategory, QuizMode, QuizQuestion } from '../types';
+import { QuizCategory, QuizMode, QuizQuestion, QuestionStats } from '../types';
 import { getQuizQuestionStatsMap } from '../utils/db';
 import { fetchQuestions } from '../utils/api';
+import {
+  getOrderProgress,
+  calculateOrderResumeIndex,
+  clearOrderProgress,
+  clearAllOrderProgress,
+} from '../utils/orderProgress';
+import { sortQuestionsById } from '../utils/quizSelector';
 import {
   BookOpen,
   RefreshCw,
@@ -22,6 +29,8 @@ import {
   Tag,
   Check,
   ChevronDown,
+  Play,
+  RotateCcw,
 } from 'lucide-react';
 
 const HIDDEN_CATEGORIES_STORAGE_KEY = 'quiz_hidden_category_ids_v1';
@@ -36,7 +45,8 @@ interface CategorySelectProps {
     category: QuizCategory,
     mode: QuizMode,
     selectedTags?: string[],
-    tagFilterMode?: 'OR' | 'AND'
+    tagFilterMode?: 'OR' | 'AND',
+    startOrderIndex?: number
   ) => void;
   onRefresh: () => void;
   onAddEncryptedCategory: (
@@ -116,6 +126,7 @@ export function CategorySelect({
 
   // Tag selection for category
   const [categoryQuestions, setCategoryQuestions] = useState<QuizQuestion[]>([]);
+  const [categoryStatsMap, setCategoryStatsMap] = useState<Map<string, QuestionStats>>(new Map());
   const [availableTags, setAvailableTags] = useState<{ tag: string; count: number }[]>([]);
   const [groupedTags, setGroupedTags] = useState<{ group: string; tags: { tag: string; count: number }[] }[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -157,6 +168,7 @@ export function CategorySelect({
         fetchQuestions(cat.url, cat.decryptionKey, cat.id, cat.hash).catch(() => ({ questions: [] })),
       ]);
 
+      setCategoryStatsMap(statsMap);
       const questions = questionsResult.questions || [];
       setCategoryQuestions(questions);
 
@@ -255,7 +267,29 @@ export function CategorySelect({
     });
   }, [categoryQuestions, selectedTags, tagFilterMode]);
 
-  const handleStartMode = (mode: QuizMode) => {
+  // Questions sorted by ID in natural ascending order
+  const sortedMatchingQuestions = useMemo(() => {
+    return sortQuestionsById(matchingQuestions);
+  }, [matchingQuestions]);
+
+  // Resume info for "順番通りに開始" mode
+  const orderResumeInfo = useMemo(() => {
+    if (!categoryForModeSelect || sortedMatchingQuestions.length === 0) {
+      return { hasResumeProgress: false, resumeIndex: 0 };
+    }
+    const saved = getOrderProgress(categoryForModeSelect.id);
+    const index = calculateOrderResumeIndex(
+      sortedMatchingQuestions,
+      categoryStatsMap,
+      saved
+    );
+    return {
+      hasResumeProgress: index > 0 && index < sortedMatchingQuestions.length,
+      resumeIndex: index,
+    };
+  }, [categoryForModeSelect, sortedMatchingQuestions, categoryStatsMap]);
+
+  const handleStartMode = (mode: QuizMode, startOrderIndex: number = 0) => {
     if (!categoryForModeSelect) return;
     if (selectedTags.length > 0 && matchingQuestions.length === 0) {
       setModeSelectWarning('選択したタグに一致する問題がありません。タグを選び直してください。');
@@ -268,7 +302,7 @@ export function CategorySelect({
     const cat = categoryForModeSelect;
     setCategoryForModeSelect(null);
     setModeSelectWarning(null);
-    onSelect(cat, mode, selectedTags, tagFilterMode);
+    onSelect(cat, mode, selectedTags, tagFilterMode, startOrderIndex);
   };
 
   const handleOpenModal = () => {
@@ -325,14 +359,18 @@ export function CategorySelect({
     setDataClearedNotice(null);
     try {
       if (selectedTargetScope === 'all') {
+        clearAllOrderProgress();
         if (onClearAllData) {
           await onClearAllData();
         }
+        setCategoryStatsMap(new Map());
         setDataClearedNotice('すべての学習データを削除しました。');
       } else {
+        clearOrderProgress(selectedTargetScope);
         if (onResetCategoryData) {
           await onResetCategoryData(selectedTargetScope);
         }
+        setCategoryStatsMap(new Map());
         const cat = categories.find((c) => c.id === selectedTargetScope);
         setDataClearedNotice(`「${cat?.title || '指定の単元'}」の学習データを削除しました。`);
       }
@@ -352,9 +390,11 @@ export function CategorySelect({
     if (!categoryForModeSelect) return;
     setIsClearingData(true);
     try {
+      clearOrderProgress(categoryForModeSelect.id);
       if (onResetCategoryData) {
         await onResetCategoryData(categoryForModeSelect.id);
       }
+      setCategoryStatsMap(new Map());
       setIncorrectCount(0);
       setConfirmingSingleReset(false);
       setModeSelectWarning('学習データをリセットしました。');
@@ -941,33 +981,89 @@ export function CategorySelect({
             {/* Mode Option Buttons */}
             <div className="space-y-2.5">
               {/* 1. 順番通りに開始 */}
-              <button
-                id="mode-order-button"
-                type="button"
-                onClick={() => handleStartMode('order')}
-                className="w-full text-left p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 hover:border-emerald-500 dark:hover:border-emerald-500 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 active:scale-[0.99] transition-all flex items-center justify-between group cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                    <ListOrdered className="w-5 h-5" />
-                  </span>
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-300 transition-colors">
-                        順番通りに開始
+              {orderResumeInfo.hasResumeProgress ? (
+                <div className="w-full rounded-xl border border-emerald-300 dark:border-emerald-800/80 bg-emerald-50/40 dark:bg-emerald-950/20 p-3 sm:p-3.5 transition-all">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                        <ListOrdered className="w-4 h-4" />
                       </span>
-                      {selectedTags.length > 0 && (
-                        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                          {matchingQuestions.length}問
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
-                      IDの順番通りに出題
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
+                            順番通りに開始
+                          </span>
+                          {selectedTags.length > 0 && (
+                            <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-900/50 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-800">
+                              {matchingQuestions.length}問
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 flex items-center gap-1">
+                          <span>前回の続き:</span>
+                          <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+                            {orderResumeInfo.resumeIndex + 1}問目
+                          </span>
+                          <span>/ 全{sortedMatchingQuestions.length}問</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
+
+                  {/* Two Buttons: 続きから開始 vs 最初から */}
+                  <div className="grid grid-cols-2 gap-2 mt-2.5">
+                    <button
+                      id="mode-order-resume-button"
+                      type="button"
+                      onClick={() => handleStartMode('order', orderResumeInfo.resumeIndex)}
+                      className="py-2 px-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                      title={`前回の続き(${orderResumeInfo.resumeIndex + 1}問目)から開始`}
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+                      <span className="truncate">続きから ({orderResumeInfo.resumeIndex + 1}問目〜)</span>
+                    </button>
+
+                    <button
+                      id="mode-order-restart-button"
+                      type="button"
+                      onClick={() => handleStartMode('order', 0)}
+                      className="py-2 px-2 bg-white dark:bg-neutral-800/90 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1 cursor-pointer"
+                      title="最初(1問目)から開始"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                      <span className="truncate">最初から (1問目)</span>
+                    </button>
+                  </div>
                 </div>
-              </button>
+              ) : (
+                <button
+                  id="mode-order-button"
+                  type="button"
+                  onClick={() => handleStartMode('order', 0)}
+                  className="w-full text-left p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 hover:border-emerald-500 dark:hover:border-emerald-500 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 active:scale-[0.99] transition-all flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                      <ListOrdered className="w-5 h-5" />
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-300 transition-colors">
+                          順番通りに開始
+                        </span>
+                        {selectedTags.length > 0 && (
+                          <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                            {matchingQuestions.length}問
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
+                        IDの順番通りに出題 (1問目から)
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              )}
 
               {/* 2. シャッフルして開始 */}
               <button

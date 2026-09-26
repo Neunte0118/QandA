@@ -21,6 +21,11 @@ import {
   resetQuizStats,
   clearAllLearningData,
 } from './utils/db';
+import {
+  saveOrderProgress,
+  clearOrderProgress,
+  clearAllOrderProgress,
+} from './utils/orderProgress';
 import { CategorySelect } from './components/CategorySelect';
 import { QuizCard } from './components/QuizCard';
 import { QuestionListView } from './components/QuestionListView';
@@ -150,6 +155,7 @@ export default function App() {
   // Handle resetting learning data for a specific category
   const handleResetCategoryData = async (quizId: string) => {
     try {
+      clearOrderProgress(quizId);
       await resetQuizStats(quizId);
       // If question list is open for this category, clear its stats map
       if (questionListCategory && questionListCategory.id === quizId) {
@@ -170,6 +176,7 @@ export default function App() {
             setOrderIndex(0);
             setCurrentQuestion(sorted[0]);
             setIsReviewQuestion(false);
+            saveOrderProgress(quizId, sorted[0].id, 0);
           } else if (quizMode === 'incorrect_only') {
             setIsClearedIncorrectMode(true);
             setCurrentQuestion(null);
@@ -189,6 +196,7 @@ export default function App() {
   // Handle clearing all learning data completely
   const handleClearAllData = async () => {
     try {
+      clearAllOrderProgress();
       await clearAllLearningData();
       setQuestionListStatsMap(new Map());
       const emptyMap = new Map<string, QuestionStats>();
@@ -294,7 +302,8 @@ export default function App() {
     category: QuizCategory,
     mode: QuizMode = 'shuffle',
     tagsToFilter: string[] = [],
-    tagFilterMode: 'OR' | 'AND' = 'OR'
+    tagFilterMode: 'OR' | 'AND' = 'OR',
+    startOrderIndex: number = 0
   ) => {
     setSelectedCategory(category);
     setQuizMode(mode);
@@ -371,13 +380,16 @@ export default function App() {
       if (mode === 'order') {
         const sorted = sortQuestionsById(activeQuestions);
         setSortedQuestions(sorted);
-        orderIndexRef.current = 0;
-        setOrderIndex(0);
-        const firstQ = sorted[0];
+        const validIndex =
+          startOrderIndex >= 0 && startOrderIndex < sorted.length ? startOrderIndex : 0;
+        orderIndexRef.current = validIndex;
+        setOrderIndex(validIndex);
+        const firstQ = sorted[validIndex];
         const isAnswered = (savedQuestionStatsMap.get(firstQ.id)?.answered ?? 0) > 0;
         setCurrentQuestion(firstQ);
         setIsReviewQuestion(isAnswered);
         setShowAnswer(false);
+        saveOrderProgress(category.id, firstQ.id, validIndex);
       } else if (mode === 'incorrect_only') {
         const incorrectList = getIncorrectQuestions(activeQuestions, savedQuestionStatsMap);
         if (incorrectList.length === 0) {
@@ -456,6 +468,7 @@ export default function App() {
       setCurrentQuestion(nextQ);
       setIsReviewQuestion(isAnswered);
       setShowAnswer(false);
+      saveOrderProgress(quizId, nextQ.id, nextIndex);
     } else if (quizMode === 'incorrect_only') {
       const remainingIncorrect = getIncorrectQuestions(allQuestions, newMap);
       if (remainingIncorrect.length === 0) {
